@@ -3,6 +3,7 @@ using System.IO;
 using System.Net;
 using System.Net.Sockets;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace ThinkInAspNetCore
@@ -11,117 +12,179 @@ namespace ThinkInAspNetCore
     {
         static void Main(string[] args)
         {
-            TcpListener tcpListener = new TcpListener(IPAddress.Parse("127.0.0.1"), 5000);
-            tcpListener.Start();
-            while (true)
+            StartWebServer();
+        }
+
+        /// <summary>
+        /// 启动web服务
+        /// </summary>
+        private static void StartWebServer()
+        {
+            try
             {
-                TcpClient tcpClient = tcpListener.AcceptTcpClient();
-                Console.WriteLine(tcpClient.ToString());
-                Task.Run(() =>
+                TcpListener tcpListener = new TcpListener(IPAddress.Parse("127.0.0.1"), 5000);
+                tcpListener.Start();
+                while (true)
                 {
-                    NetworkStream networkStream = tcpClient.GetStream();
-                    MemoryStream memoryStream = new MemoryStream();
-                    int recvTotals = 0;
-                    while (tcpClient.Available > 0)
+                    TcpClient tcpClient = tcpListener.AcceptTcpClient();
+                    Task.Run(() =>
                     {
-                        byte[] buffer = new byte[512];
-                        int realLength = networkStream.Read(buffer, 0, buffer.Length);
-                        memoryStream.Write(buffer, 0, realLength);
-                        recvTotals += realLength;
-                    }
-                    if (recvTotals > 0)
-                    {
-                        string content = Encoding.UTF8.GetString(memoryStream.ToArray());
-                        string[] requestLines = content.Split("\r\n");
-                        StringBuilder responseBuilder = new StringBuilder();
-                        for (int i = 0; i < requestLines.Length; i++)
+                        HttpHandler httpHandler = null;
+                        try
                         {
-                            if (i == 0)
+                            NetworkStream networkStream = tcpClient.GetStream();
+                            MemoryStream memoryStream = new MemoryStream();
+                            int recvTotals = 0;
+                            while (tcpClient.Available > 0)
                             {
-                                string[] tempArr = requestLines[i].Split(" ");
-                                string method = tempArr[0];
-                                string requestUrl = tempArr[1];
-                                string httpVersion = tempArr[2];
-                                string filePath = string.Empty;
-                                string dir = AppDomain.CurrentDomain.BaseDirectory;
-                                if (requestUrl == "/")
+                                byte[] buffer = new byte[512];
+                                int realLength = networkStream.Read(buffer, 0, buffer.Length);
+                                memoryStream.Write(buffer, 0, realLength);
+                                recvTotals += realLength;
+                            }
+                            if (recvTotals > 0)
+                            {
+                                string content = Encoding.UTF8.GetString(memoryStream.ToArray());
+                                Log.Write(content);
+                                if (memoryStream != null)
                                 {
-                                    filePath = Path.Combine(dir, "index.html");
+                                    memoryStream.Close();
+                                    memoryStream.Dispose();
+                                    memoryStream = null;
                                 }
-                                else
+                                HttpRequest httpRequest = BuildRequest(tcpClient, content);
+                                httpHandler = new HttpHandler(httpRequest);
+                            }
+                            if (networkStream != null)
+                            {
+                                networkStream.Close();
+                                networkStream.Dispose();
+                                networkStream = null;
+                            }
+                            if (tcpClient != null)
+                            {
+                                tcpClient.Close();
+                                tcpClient.Dispose();
+                                tcpClient = null;
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            Log.Write("处理请求出错", ex);
+                            if (httpHandler == null)
+                            {
+                                httpHandler = new HttpHandler();
+                                if (httpHandler.httpResponse == null)
                                 {
-                                    filePath = Path.Combine(dir, requestUrl.Remove(0, 1));
-                                }
-                                if (!File.Exists(filePath))
-                                {
-                                    responseBuilder.Append(method).Append(" 404 aa\r\n");
-                                    responseBuilder.Append("Server:softsunlight_webserver\r\n");
-                                    if (filePath.LastIndexOf("html") >= 0)
+                                    httpHandler.httpResponse = new HttpResponse();
+                                    httpHandler.httpResponse.ResponseStream = tcpClient.GetStream();
+                                    httpHandler.httpResponse.ContentType = "text/plain";
+                                    httpHandler.httpResponse.ResponseBody = "处理您的请求出错了，" + ex.Message + "," + ex.Source + "," + ex.StackTrace;
+                                    httpHandler.httpResponse.StatusCode = "500";
+                                    httpHandler.httpResponse.StatusMessage = "Error";
+                                    if (httpHandler.httpResponse.ResponseHeaders == null)
                                     {
-                                        responseBuilder.Append("Content-Type:text/html\r\n");
+                                        httpHandler.httpResponse.ResponseHeaders["Server"] = "softsunlight_webserver";
+                                        httpHandler.httpResponse.ResponseHeaders["Date"] = DateTime.Now.ToLongTimeString();
                                     }
-                                    else if (filePath.LastIndexOf("css") >= 0)
-                                    {
-                                        responseBuilder.Append("Content-Type:text/css\r\n");
-                                    }
-                                    else
-                                    {
-                                        responseBuilder.Append("Content-Type:text/html\r\n");
-                                    }
-                                }
-                                else
-                                {
-                                    responseBuilder.Append(httpVersion).Append(" 200 Success\r\n");
-                                    responseBuilder.Append("Server:softsunlight_webserver\r\n");
-                                    if (filePath.LastIndexOf("html") >= 0)
-                                    {
-                                        responseBuilder.Append("Content-Type:text/html\r\n");
-                                    }
-                                    else if (filePath.LastIndexOf("css") >= 0)
-                                    {
-                                        responseBuilder.Append("Content-Type:text/css\r\n");
-                                    }
-                                    else
-                                    {
-                                        responseBuilder.Append("Content-Type:text/html\r\n");
-                                    }
-                                    responseBuilder.Append("\r\n");
-                                    responseBuilder.Append(File.ReadAllText(filePath));
                                 }
                             }
                         }
-                        if (responseBuilder.Length > 0)
+                        finally
                         {
-                            networkStream.Write(Encoding.UTF8.GetBytes(responseBuilder.ToString()));
+                            if (httpHandler != null)
+                            {
+                                httpHandler.ProcessRequest();
+                            }
                         }
-                        if (memoryStream != null)
-                        {
-                            memoryStream.Close();
-                            memoryStream.Dispose();
-                            memoryStream = null;
-                        }
-                        if (!string.IsNullOrEmpty(content))
-                        {
-                            Console.WriteLine(content);
-                        }
-                    }
-                    //else
-                    {
-                        if (networkStream != null)
-                        {
-                            networkStream.Close();
-                            networkStream.Dispose();
-                            networkStream = null;
-                        }
-                        if (tcpClient != null)
-                        {
-                            tcpClient.Close();
-                            tcpClient.Dispose();
-                            tcpClient = null;
-                        }
-                    }
-                });
+                    });
+                }
+            }
+            catch (Exception ex)
+            {
+                Log.Write("启动web服务出错", ex);
+                Thread.Sleep(10000);
+                StartWebServer();
             }
         }
+
+        /// <summary>
+        /// 构造Http请求类
+        /// </summary>
+        /// <param name="tcpClient"></param>
+        /// <param name="requestContent"></param>
+        /// <returns></returns>
+        private static HttpRequest BuildRequest(TcpClient tcpClient, string requestContent)
+        {
+            HttpRequest httpRequest = new HttpRequest();
+            if (tcpClient.Connected)
+            {
+                httpRequest.RequestStream = tcpClient.GetStream();
+            }
+            if (string.IsNullOrEmpty(requestContent))
+            {
+                throw new Exception("请求内容为空");
+            }
+            string[] requestLines = requestContent.Split("\r\n");
+            int formContentIndex = 0;
+            for (int i = 0; i < requestLines.Length; i++)
+            {
+                if (i == 0)
+                {
+                    string[] tempArr = requestLines[i].Split(" ");
+                    httpRequest.Method = tempArr[0];
+                    httpRequest.RequstUrl = tempArr[1];
+                    httpRequest.Version = tempArr[2];
+                    string filePath = string.Empty;
+                    string dir = AppDomain.CurrentDomain.BaseDirectory;
+                }
+                else if (formContentIndex > 0 && i >= formContentIndex)
+                {
+                    //构造表单域
+
+                }
+                else
+                {
+                    //请求头
+                    //遇到空行，则下一行是表单域
+                    if (string.IsNullOrEmpty(requestLines[i]))
+                    {
+                        formContentIndex = i + 1;
+                        continue;
+                    }
+                    if (httpRequest.RequestHeaders == null)
+                    {
+                        httpRequest.RequestHeaders = new System.Collections.Generic.Dictionary<string, object>();
+                    }
+                    string[] tempArr = requestLines[i].Split(":");
+                    if (tempArr.Length >= 2)
+                    {
+                        if (tempArr[0].Equals("Content-Length", StringComparison.InvariantCultureIgnoreCase))
+                        {
+                            int length = 0;
+                            try
+                            {
+                                length = Convert.ToInt32(tempArr[1].Trim());
+                            }
+                            catch (Exception ex)
+                            {
+
+                            }
+                            httpRequest.RequestHeaders[tempArr[0].Trim()] = length;
+                        }
+                        else
+                        {
+                            httpRequest.RequestHeaders[tempArr[0].Trim()] = tempArr[1].Trim();
+                        }
+                    }
+                    else
+                    {
+                        httpRequest.RequestHeaders[tempArr[0].Trim()] = "";
+                    }
+                }
+            }
+            return httpRequest;
+        }
+
     }
 }
