@@ -3,13 +3,25 @@ using System.Collections.Generic;
 using System.Net.Sockets;
 using System.Text;
 
-namespace ThinkInAspNetCore
+namespace ThinkInAspNetCore.MiniMvc
 {
     /// <summary>
     /// http请求类
     /// </summary>
     public class HttpRequest
     {
+        /// <summary>
+        /// 获取url或表单域中的参数
+        /// </summary>
+        /// <param name="key"></param>
+        /// <returns></returns>
+        public string this[string key]
+        {
+            get
+            {
+                return QueryString.ContainsKey(key) ? QueryString[key] : Form[key];
+            }
+        }
         /// <summary>
         /// 请求方法
         /// </summary>

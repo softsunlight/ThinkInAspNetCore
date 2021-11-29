@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.Net.Sockets;
 using System.Text;
 
-namespace ThinkInAspNetCore
+namespace ThinkInAspNetCore.MiniMvc
 {
     /// <summary>
     /// http响应类
@@ -92,6 +92,11 @@ namespace ThinkInAspNetCore
         public NetworkStream ResponseStream { get; set; }
 
         /// <summary>
+        /// 响应回写Cookie
+        /// </summary>
+        public List<HttpCookie> Cookies { get; set; }
+
+        /// <summary>
         /// 写入网络流中
         /// </summary>
         public void Write()
@@ -104,6 +109,26 @@ namespace ThinkInAspNetCore
                 foreach (string key in ResponseHeaders.Keys)
                 {
                     stringBuilder.Append(key).Append(":").Append(ResponseHeaders[key]).Append(Environment.NewLine);
+                }
+            }
+            if (Cookies != null && Cookies.Count > 0)
+            {
+                foreach (var cookie in Cookies)
+                {
+                    stringBuilder.Append("Set-Cookie").Append(":").Append(cookie.Name).Append("=").Append(cookie.Value).Append(";");
+                    if (!string.IsNullOrEmpty(cookie.Path))
+                    {
+                        stringBuilder.Append("Path=").Append(cookie.Path).Append(";");
+                    }
+                    if (cookie.Secure)
+                    {
+                        stringBuilder.Append("Secure;");
+                    }
+                    if (cookie.HttpOnly)
+                    {
+                        stringBuilder.Append("HttpOnly;");
+                    }
+                    stringBuilder.Append(Environment.NewLine);
                 }
             }
             if (!string.IsNullOrEmpty(ResponseBody))

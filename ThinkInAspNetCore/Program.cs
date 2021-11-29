@@ -1,10 +1,14 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Net;
 using System.Net.Sockets;
 using System.Text;
+using System.Text.Json;
+using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
+using ThinkInAspNetCore.MiniMvc;
 
 namespace ThinkInAspNetCore
 {
@@ -29,10 +33,13 @@ namespace ThinkInAspNetCore
                     TcpClient tcpClient = tcpListener.AcceptTcpClient();
                     Task.Run(() =>
                     {
+                        NetworkStream networkStream = null;
                         HttpHandler httpHandler = null;
+                        HttpRequest httpRequest = new HttpRequest();
                         try
                         {
-                            NetworkStream networkStream = tcpClient.GetStream();
+                            networkStream = tcpClient.GetStream();
+                            httpRequest.RequestStream = networkStream;
                             MemoryStream memoryStream = new MemoryStream();
                             int recvTotals = 0;
                             while (tcpClient.Available > 0)
@@ -52,20 +59,8 @@ namespace ThinkInAspNetCore
                                     memoryStream.Dispose();
                                     memoryStream = null;
                                 }
-                                HttpRequest httpRequest = BuildRequest(tcpClient, content);
+                                httpRequest = BuildRequest(tcpClient, content);
                                 httpHandler = new HttpHandler(httpRequest);
-                            }
-                            if (networkStream != null)
-                            {
-                                networkStream.Close();
-                                networkStream.Dispose();
-                                networkStream = null;
-                            }
-                            if (tcpClient != null)
-                            {
-                                tcpClient.Close();
-                                tcpClient.Dispose();
-                                tcpClient = null;
                             }
                         }
                         catch (Exception ex)
@@ -78,15 +73,16 @@ namespace ThinkInAspNetCore
                                 {
                                     httpHandler.httpResponse = new HttpResponse();
                                     httpHandler.httpResponse.ResponseStream = tcpClient.GetStream();
-                                    httpHandler.httpResponse.ContentType = "text/plain";
-                                    httpHandler.httpResponse.ResponseBody = "处理您的请求出错了，" + ex.Message + "," + ex.Source + "," + ex.StackTrace;
+                                    httpHandler.httpResponse.ContentType = "text/html";
+                                    httpHandler.httpResponse.ResponseBody = File.ReadAllText(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "error_500.html")).Replace("@error", "处理您的请求出错了，" + ex.Message + "," + ex.Source + "," + ex.StackTrace);
                                     httpHandler.httpResponse.StatusCode = "500";
                                     httpHandler.httpResponse.StatusMessage = "Error";
                                     if (httpHandler.httpResponse.ResponseHeaders == null)
                                     {
-                                        httpHandler.httpResponse.ResponseHeaders["Server"] = "softsunlight_webserver";
-                                        httpHandler.httpResponse.ResponseHeaders["Date"] = DateTime.Now.ToLongTimeString();
+                                        httpHandler.httpResponse.ResponseHeaders = new Dictionary<string, object>();
                                     }
+                                    httpHandler.httpResponse.ResponseHeaders["Server"] = "softsunlight_webserver";
+                                    httpHandler.httpResponse.ResponseHeaders["Date"] = DateTime.Now.ToLongTimeString();
                                 }
                             }
                         }
@@ -95,6 +91,18 @@ namespace ThinkInAspNetCore
                             if (httpHandler != null)
                             {
                                 httpHandler.ProcessRequest();
+                            }
+                            if (networkStream != null)
+                            {
+                                networkStream.Close();
+                                networkStream.Dispose();
+                                networkStream = null;
+                            }
+                            if (tcpClient != null)
+                            {
+                                tcpClient.Close();
+                                tcpClient.Dispose();
+                                tcpClient = null;
                             }
                         }
                     });
@@ -127,21 +135,71 @@ namespace ThinkInAspNetCore
             }
             string[] requestLines = requestContent.Split("\r\n");
             int formContentIndex = 0;
+            StringBuilder fileFieldBuilder = new StringBuilder();
             for (int i = 0; i < requestLines.Length; i++)
             {
                 if (i == 0)
                 {
                     string[] tempArr = requestLines[i].Split(" ");
                     httpRequest.Method = tempArr[0];
-                    httpRequest.RequstUrl = tempArr[1];
+                    string requestUri = tempArr[1];
+                    string[] urlAndQueryString = requestUri.Split("?");
+                    if (urlAndQueryString.Length >= 2)
+                    {
+                        httpRequest.RequstUrl = urlAndQueryString[0];
+                        string[] queryStrings = urlAndQueryString[1].Split("&");
+                        foreach (var queryString in queryStrings)
+                        {
+                            string[] keyvalues = queryString.Split("=");
+                            if (keyvalues.Length >= 2)
+                            {
+                                if (httpRequest.QueryString == null)
+                                {
+                                    httpRequest.QueryString = new Dictionary<string, string>();
+                                }
+                                httpRequest.QueryString[keyvalues[0].Trim()] = keyvalues[1].Trim();
+                            }
+                        }
+                    }
+                    else if (urlAndQueryString.Length >= 1)
+                    {
+                        httpRequest.RequstUrl = urlAndQueryString[0];
+                    }
                     httpRequest.Version = tempArr[2];
-                    string filePath = string.Empty;
-                    string dir = AppDomain.CurrentDomain.BaseDirectory;
                 }
                 else if (formContentIndex > 0 && i >= formContentIndex)
                 {
                     //构造表单域
-
+                    if (httpRequest.RequestHeaders.ContainsKey("Content-Type") && httpRequest.RequestHeaders["Content-Type"].ToString().Contains("multipart/form-data"))
+                    {
+                        if (string.IsNullOrEmpty(requestLines[i]))
+                        {
+                            fileFieldBuilder.Append(Environment.NewLine);
+                        }
+                        else
+                        {
+                            fileFieldBuilder.Append(requestLines[i]);
+                        }
+                    }
+                    else
+                    {
+                        if (!string.IsNullOrEmpty(requestLines[i]))
+                        {
+                            string[] formFields = requestLines[i].Split("&");
+                            foreach (var field in formFields)
+                            {
+                                string[] keyvalues = field.Split("=");
+                                if (keyvalues.Length >= 2)
+                                {
+                                    if (httpRequest.Form == null)
+                                    {
+                                        httpRequest.Form = new Dictionary<string, string>();
+                                    }
+                                    httpRequest.Form[keyvalues[0]] = keyvalues[1];
+                                }
+                            }
+                        }
+                    }
                 }
                 else
                 {
@@ -154,7 +212,7 @@ namespace ThinkInAspNetCore
                     }
                     if (httpRequest.RequestHeaders == null)
                     {
-                        httpRequest.RequestHeaders = new System.Collections.Generic.Dictionary<string, object>();
+                        httpRequest.RequestHeaders = new Dictionary<string, object>();
                     }
                     string[] tempArr = requestLines[i].Split(":");
                     if (tempArr.Length >= 2)
@@ -172,6 +230,22 @@ namespace ThinkInAspNetCore
                             }
                             httpRequest.RequestHeaders[tempArr[0].Trim()] = length;
                         }
+                        else if (tempArr[0].Equals("Cookie", StringComparison.InvariantCultureIgnoreCase))
+                        {
+                            string[] cookies = tempArr[1].Split(";");
+                            foreach (var cookie in cookies)
+                            {
+                                string[] keyvalues = cookie.Split("=");
+                                if (keyvalues.Length >= 2)
+                                {
+                                    if (httpRequest.Cookies == null)
+                                    {
+                                        httpRequest.Cookies = new List<HttpCookie>();
+                                    }
+                                    httpRequest.Cookies.Add(new HttpCookie(keyvalues[0].Trim(), keyvalues[1].Trim()));
+                                }
+                            }
+                        }
                         else
                         {
                             httpRequest.RequestHeaders[tempArr[0].Trim()] = tempArr[1].Trim();
@@ -180,6 +254,74 @@ namespace ThinkInAspNetCore
                     else
                     {
                         httpRequest.RequestHeaders[tempArr[0].Trim()] = "";
+                    }
+                }
+            }
+            if (fileFieldBuilder.Length > 0)
+            {
+                //构造文件列表
+                Regex boundaryRegex = new Regex(@"boundary=(?<boundary>\S+)");
+                Match boundaryMatch = boundaryRegex.Match(httpRequest.RequestHeaders["Content-Type"].ToString());
+                string boundary = string.Empty;
+                if (boundaryMatch.Success)
+                {
+                    boundary = boundaryMatch.Groups["boundary"].Value;
+                }
+                string[] formDataArr = fileFieldBuilder.ToString().Split("--" + boundary, StringSplitOptions.RemoveEmptyEntries);
+                Regex nameReg = new Regex(@"name=""(?<name>[^""]*)""");
+                Regex filenameReg = new Regex(@"filename=""(?<filename>[^""]*)""");
+                Regex contentTypeReg = new Regex(@"Content-Type:(?<contentType>\S*)");
+                foreach (var formData in formDataArr)
+                {
+                    string[] formInfos = formData.Split("\r\n");
+                    if (formInfos.Length >= 2)
+                    {
+                        string fileHeaderInfo = formInfos[0];
+                        string value = formInfos[1];
+                        Match nameMatch = nameReg.Match(fileHeaderInfo);
+                        string name = string.Empty;
+                        if (nameMatch.Success)
+                        {
+                            name = nameMatch.Groups["name"].Value;
+                        }
+                        Match filenameMatch = filenameReg.Match(fileHeaderInfo);
+                        string fileName = string.Empty;
+                        if (filenameMatch.Success)
+                        {
+                            fileName = filenameMatch.Groups["filename"].Value;
+                        }
+                        Match contentTypeMatch = contentTypeReg.Match(fileHeaderInfo);
+                        string contentType = string.Empty;
+                        if (contentTypeMatch.Success)
+                        {
+                            contentType = contentTypeMatch.Groups["contentType"].Value;
+                        }
+                        if (string.IsNullOrEmpty(fileName))
+                        {
+                            if (!string.IsNullOrEmpty(name))
+                            {
+                                if (httpRequest.Form == null)
+                                {
+                                    httpRequest.Form = new Dictionary<string, string>();
+                                }
+                                httpRequest.Form[name] = value;
+                            }
+                        }
+                        else
+                        {
+                            if (httpRequest.Files == null)
+                            {
+                                httpRequest.Files = new List<HttpFile>();
+                            }
+                            httpRequest.Files.Add(new HttpFile()
+                            {
+                                Name = name,
+                                FileName = fileName,
+                                FileDatas = Encoding.Unicode.GetBytes(value),
+                                ContentType = contentType
+                            });
+                        }
+
                     }
                 }
             }

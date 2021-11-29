@@ -56,6 +56,10 @@ namespace ThinkInAspNetCore
                 fileName = DateTime.Today.ToString("yyyy-MM-dd") + "_log_" + maxIndex + ".txt";
                 Write(message, fileLoadException);
             }
+            catch (Exception exception)
+            {
+
+            }
         }
 
         private static StringBuilder GetContent(string message, Exception ex)
