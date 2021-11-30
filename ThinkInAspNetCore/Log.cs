@@ -4,6 +4,8 @@ using System.IO;
 using System.Reflection;
 using System.Text;
 using System.Text.RegularExpressions;
+using System.Threading;
+using System.Threading.Tasks;
 
 namespace ThinkInAspNetCore
 {
@@ -22,6 +24,36 @@ namespace ThinkInAspNetCore
         /// </summary>
         private static string fileName = DateTime.Today.ToString("yyyy-MM-dd") + "_log.txt";
 
+        private static Queue<LogContent> contentList = null;
+
+        static Log()
+        {
+            contentList = new Queue<LogContent>();
+            Task.Run(() =>
+            {
+                while (true)
+                {
+                    try
+                    {
+                        if (contentList.Count > 0)
+                        {
+                            var content = contentList.Peek();
+                            WriteToFile(content);
+                            contentList.Dequeue();
+                        }
+                        else
+                        {
+                            Thread.Sleep(5000);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        throw ex;
+                    }
+                }
+            });
+        }
+
         public static void Write(string message)
         {
             Write(message, null);
@@ -29,6 +61,17 @@ namespace ThinkInAspNetCore
 
         public static void Write(string message, Exception ex)
         {
+            contentList.Enqueue(new LogContent() { Message = message, Ex = ex });
+        }
+
+        private static void WriteToFile(LogContent logContent)
+        {
+            if (logContent == null)
+            {
+                return;
+            }
+            string message = logContent.Message;
+            Exception ex = logContent.Ex;
             try
             {
                 if (!Directory.Exists(dir))
@@ -37,7 +80,7 @@ namespace ThinkInAspNetCore
                 }
                 File.AppendAllText(Path.Combine(dir, fileName), DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss") + Environment.NewLine + GetContent(message, ex));
             }
-            catch (FileLoadException fileLoadException)
+            catch (Exception exception)
             {
                 string[] files = Directory.GetFiles(dir);
                 Regex regex = new Regex(DateTime.Today.ToString("yyyy-MM-dd") + @"_log_?(?<number>_\d+)?\.txt");
@@ -54,11 +97,7 @@ namespace ThinkInAspNetCore
                     }
                 }
                 fileName = DateTime.Today.ToString("yyyy-MM-dd") + "_log_" + maxIndex + ".txt";
-                Write(message, fileLoadException);
-            }
-            catch (Exception exception)
-            {
-
+                Write(message, exception);
             }
         }
 
@@ -75,6 +114,12 @@ namespace ThinkInAspNetCore
                 }
             }
             return stringBuilder;
+        }
+
+        private class LogContent
+        {
+            public string Message { get; set; }
+            public Exception Ex { get; set; }
         }
 
     }

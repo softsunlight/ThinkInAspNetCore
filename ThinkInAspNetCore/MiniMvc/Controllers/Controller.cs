@@ -10,9 +10,51 @@ namespace ThinkInAspNetCore.MiniMvc.Controllers
     /// </summary>
     public abstract class Controller
     {
-        public IActionResult View()
+        //To do 页面传值
+
+        /// <summary>
+        /// http请求
+        /// </summary>
+        public HttpRequest Request { get; set; }
+        /// <summary>
+        /// http响应
+        /// </summary>
+        public HttpResponse Response { get; set; }
+        /// <summary>
+        /// 视图
+        /// </summary>
+        /// <returns></returns>
+        public IActionResult View(string viewName)
         {
-            return new ViewResult();
+            return new ViewResult(this, viewName);
         }
+        /// <summary>
+        /// 返回json数据
+        /// </summary>
+        /// <returns></returns>
+        public IActionResult Json()
+        {
+            return Json(null);
+        }
+        /// <summary>
+        /// 返回json数据
+        /// </summary>
+        /// <param name="data"></param>
+        /// <returns></returns>
+        public IActionResult Json(object data)
+        {
+            return new JsonResult(this, data);
+        }
+
+        public IActionResult Redirect()
+        {
+            return Redirect(null);
+        }
+
+        public IActionResult Redirect(string routeUrl)
+        {
+            return new RedirectResult(this, routeUrl);
+        }
+
     }
 }

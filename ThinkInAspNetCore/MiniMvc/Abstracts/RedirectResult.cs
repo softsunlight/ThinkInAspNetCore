@@ -1,21 +1,23 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Text;
-using System.Text.Json;
 using ThinkInAspNetCore.MiniMvc.Controllers;
 
 namespace ThinkInAspNetCore.MiniMvc.Abstracts
 {
-    public class JsonResult : IActionResult
+    /// <summary>
+    /// 重定向
+    /// </summary>
+    public class RedirectResult : IActionResult
     {
         private Controller controller;
 
-        private object jsonData;
+        private string routeUrl;
 
-        public JsonResult(Controller controller, object data)
+        public RedirectResult(Controller controller, string routeUrl)
         {
             this.controller = controller;
-            this.jsonData = data;
+            this.routeUrl = routeUrl;
             Render();
         }
 
@@ -24,21 +26,13 @@ namespace ThinkInAspNetCore.MiniMvc.Abstracts
             HttpResponse response = controller.Response;
             if (response != null)
             {
+                response.StatusCode = "302";
+                response.StatusMessage = "Found";
                 if (response.ResponseHeaders == null)
                 {
                     response.ResponseHeaders = new Dictionary<string, object>();
                 }
-                response.ResponseHeaders["Content-Type"] = "application/json;charset=utf-8";
-                if (jsonData == null)
-                {
-                    response.ResponseBody = "{}";
-                }
-                else
-                {
-                    response.ResponseBody = JsonSerializer.Serialize(jsonData);
-                }
-                response.StatusCode = "200";
-                response.StatusMessage = "OK";
+                response.ResponseHeaders.Add("Location", string.IsNullOrEmpty(routeUrl) ? "/" : routeUrl);
             }
         }
     }

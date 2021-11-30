@@ -42,7 +42,7 @@ namespace ThinkInAspNetCore
                             httpRequest.RequestStream = networkStream;
                             MemoryStream memoryStream = new MemoryStream();
                             int recvTotals = 0;
-                            while (tcpClient.Available > 0)
+                            while (networkStream.DataAvailable)
                             {
                                 byte[] buffer = new byte[512];
                                 int realLength = networkStream.Read(buffer, 0, buffer.Length);
@@ -317,7 +317,7 @@ namespace ThinkInAspNetCore
                             {
                                 Name = name,
                                 FileName = fileName,
-                                FileDatas = Encoding.Unicode.GetBytes(value),
+                                FileDatas = Encoding.UTF8.GetBytes(value),
                                 ContentType = contentType
                             });
                         }
