@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Text;
 using ThinkInAspNetCore.MiniMvc.Abstracts;
 
@@ -58,6 +59,21 @@ namespace ThinkInAspNetCore.MiniMvc.Controllers
         public IActionResult File()
         {
             return View("File");
+        }
+
+        public IActionResult SaveFile()
+        {
+            if (Request.Files != null && Request.Files.Count > 0)
+            {
+                foreach (var file in Request.Files)
+                {
+                    file.Write(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, file.FileName));
+                }
+            }
+            return Json(new
+            {
+                Success = true
+            });
         }
 
     }

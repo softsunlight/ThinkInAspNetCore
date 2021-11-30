@@ -64,14 +64,6 @@ namespace ThinkInAspNetCore.MiniMvc
                 string webDir = AppDomain.CurrentDomain.BaseDirectory;
                 string filePath = string.Empty;
 
-                if (httpRequest.Files != null && httpRequest.Files.Count > 0)
-                {
-                    foreach (var file in httpRequest.Files)
-                    {
-                        file.Write(Path.Combine(webDir, file.FileName));
-                    }
-                }
-
                 if (Regex.IsMatch(httpRequest.RequstUrl, @".+\..+"))//静态文件
                 {
                     filePath = Path.Combine(webDir, httpRequest.RequstUrl.Remove(0, 1));
