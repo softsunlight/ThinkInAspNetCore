@@ -76,5 +76,10 @@ namespace ThinkInAspNetCore.MiniMvc.Controllers
             });
         }
 
+        public IActionResult Form()
+        {
+            return View("Form");
+        }
+
     }
 }
