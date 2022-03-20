@@ -64,6 +64,30 @@ namespace ThinkInAspNetCore.MiniMvc
                 string webDir = AppDomain.CurrentDomain.BaseDirectory;
                 string filePath = string.Empty;
 
+                if (httpRequest.Method == "OPTIONS")
+                {
+                    if (httpRequest.RequestHeaders.ContainsKey("Access-Control-Request-Method"))
+                    {
+                        //CORS 预检请求
+                        if (httpRequest.RequestHeaders.ContainsKey("Origin"))
+                        {
+                            if (httpResponse.ResponseHeaders == null)
+                            {
+                                httpResponse.ResponseHeaders = new Dictionary<string, object>();
+                            }
+                            httpResponse.ResponseHeaders["Access-Control-Allow-Origin"] = httpRequest.RequestHeaders["Origin"];
+                        }
+                        httpResponse.ResponseHeaders["Access-Control-Allow-Methods"] = "POST,GET,OPTIONS";
+                        if (httpRequest.RequestHeaders.ContainsKey("Access-Control-Request-Headers"))
+                        {
+                            httpResponse.ResponseHeaders["Access-Control-Allow-Headers"] = httpRequest.RequestHeaders["Access-Control-Request-Headers"];
+                        }
+                        httpResponse.StatusCode = "204";
+                        httpResponse.StatusMessage = "No Content";
+                        return;
+                    }
+                }
+
                 if (Regex.IsMatch(httpRequest.RequstUrl, @".+\..+"))//静态文件
                 {
                     filePath = Path.Combine(webDir, httpRequest.RequstUrl.Remove(0, 1));

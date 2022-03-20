@@ -6,6 +6,9 @@ using ThinkInAspNetCore.MiniMvc.Controllers;
 
 namespace ThinkInAspNetCore.MiniMvc.Abstracts
 {
+    /// <summary>
+    /// 返回json数据
+    /// </summary>
     public class JsonResult : IActionResult
     {
         private Controller controller;

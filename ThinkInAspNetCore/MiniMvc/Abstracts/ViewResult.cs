@@ -6,6 +6,9 @@ using ThinkInAspNetCore.MiniMvc.Controllers;
 
 namespace ThinkInAspNetCore.MiniMvc.Abstracts
 {
+    /// <summary>
+    /// 返回html页面
+    /// </summary>
     public class ViewResult : IActionResult
     {
         private Controller controller;

@@ -46,11 +46,20 @@ namespace ThinkInAspNetCore.MiniMvc.Controllers
             return new JsonResult(this, data);
         }
 
+        /// <summary>
+        /// 重定向
+        /// </summary>
+        /// <returns></returns>
         public IActionResult Redirect()
         {
             return Redirect(null);
         }
 
+        /// <summary>
+        /// 重定向
+        /// </summary>
+        /// <param name="routeUrl"></param>
+        /// <returns></returns>
         public IActionResult Redirect(string routeUrl)
         {
             return new RedirectResult(this, routeUrl);

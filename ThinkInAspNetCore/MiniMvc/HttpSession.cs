@@ -5,7 +5,7 @@ using System.Text;
 namespace ThinkInAspNetCore.MiniMvc
 {
     /// <summary>
-    /// Http会话管理
+    /// Http会话
     /// </summary>
     public class HttpSession
     {

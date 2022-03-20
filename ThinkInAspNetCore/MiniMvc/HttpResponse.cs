@@ -1,5 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.IO;
+using System.IO.Compression;
 using System.Net.Sockets;
 using System.Text;
 
@@ -131,13 +133,26 @@ namespace ThinkInAspNetCore.MiniMvc
                     stringBuilder.Append(Environment.NewLine);
                 }
             }
+            ////使用deflate压缩
+            //stringBuilder.Append("Content-Encoding:deflate").Append(Environment.NewLine);
+            //stringBuilder.Append("Vary:Accept-Encoding").Append(Environment.NewLine);
             if (!string.IsNullOrEmpty(ResponseBody))
             {
+                stringBuilder.Append("Content-Length:").Append(Encoding.UTF8.GetByteCount(ResponseBody)).Append(Environment.NewLine);
                 stringBuilder.Append(Environment.NewLine);
                 stringBuilder.Append(ResponseBody);
             }
+            else
+            {
+                stringBuilder.Append("Content-Length:").Append(0).Append(Environment.NewLine);
+                stringBuilder.Append(Environment.NewLine);
+            }
             if (ResponseStream != null)
             {
+                //MemoryStream memoryStream = new MemoryStream();
+                //memoryStream.Write();
+                //DeflateStream deflateStream = new DeflateStream(ResponseStream, CompressionMode.Compress);
+                //memoryStream.CopyTo(deflateStream);
                 ResponseStream.Write(Encoding.UTF8.GetBytes(stringBuilder.ToString()));
             }
         }

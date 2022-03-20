@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Net;
 using System.Net.Sockets;
 using System.Text;
@@ -39,92 +40,91 @@ namespace ThinkInAspNetCore.MiniMvc
                     TcpClient tcpClient = tcpListener.AcceptTcpClient();
                     Task.Run(() =>
                     {
-                        NetworkStream networkStream = null;
-                        HttpHandler httpHandler = null;
-                        HttpRequest httpRequest = new HttpRequest();
-                        try
+                        while (true)
                         {
-                            networkStream = tcpClient.GetStream();
-                            httpRequest.RequestStream = networkStream;
-                            MemoryStream memoryStream = new MemoryStream();
-                            int recvTotals = 0;
-                            while (networkStream.DataAvailable)
+                            //http1.1 默认是持久链接
+                            try
                             {
-                                byte[] buffer = new byte[512];
-                                int realLength = networkStream.Read(buffer, 0, buffer.Length);
-                                memoryStream.Write(buffer, 0, realLength);
-                                recvTotals += realLength;
-                            }
-                            if (recvTotals > 0)
-                            {
-                                httpRequest = BuildRequest(tcpClient, memoryStream.ToArray());
-                                string content = Encoding.UTF8.GetString(memoryStream.ToArray());
-                                Log.Write(content);
-                                if (memoryStream != null)
+                                NetworkStream networkStream = tcpClient.GetStream();
+                                MemoryStream memoryStream = new MemoryStream();
+                                int recvTotals = 0;
+                                int realLength = 0;
+                                do
                                 {
-                                    memoryStream.Close();
-                                    memoryStream.Dispose();
-                                    memoryStream = null;
-                                }
-                                httpHandler = new HttpHandler(httpRequest);
-                            }
-                            else
-                            {
-                                if (networkStream != null)
+                                    byte[] buffer = new byte[512];
+                                    realLength = networkStream.Read(buffer, 0, buffer.Length);
+                                    memoryStream.Write(buffer, 0, realLength);
+                                    recvTotals += realLength;
+                                } while (networkStream.DataAvailable);
+                                if (recvTotals > 0)
                                 {
-                                    networkStream.Close();
-                                    networkStream.Dispose();
-                                    networkStream = null;
+                                    HttpHandler httpHandler = null;
+                                    HttpRequest httpRequest = new HttpRequest();
+                                    try
+                                    {
+                                        httpRequest = BuildRequest(tcpClient, memoryStream.ToArray());
+                                        string content = Encoding.UTF8.GetString(memoryStream.ToArray());
+                                        Log.Write(content);
+                                        if (memoryStream != null)
+                                        {
+                                            memoryStream.Close();
+                                            memoryStream.Dispose();
+                                            memoryStream = null;
+                                        }
+                                        httpHandler = new HttpHandler(httpRequest);
+                                    }
+                                    catch (Exception ex)
+                                    {
+                                        Log.Write("处理请求出错", ex);
+                                        if (httpHandler == null)
+                                        {
+                                            httpHandler = new HttpHandler();
+                                            if (httpHandler.httpResponse == null)
+                                            {
+                                                httpHandler.httpResponse = new HttpResponse();
+                                                httpHandler.httpResponse.ResponseStream = tcpClient.GetStream();
+                                                httpHandler.httpResponse.ContentType = "text/html";
+                                                httpHandler.httpResponse.ResponseBody = File.ReadAllText(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "html/error_500.html")).Replace("@error", "处理您的请求出错了，" + ex.Message + "," + ex.Source + "," + ex.StackTrace);
+                                                httpHandler.httpResponse.StatusCode = "500";
+                                                httpHandler.httpResponse.StatusMessage = "Error";
+                                                if (httpHandler.httpResponse.ResponseHeaders == null)
+                                                {
+                                                    httpHandler.httpResponse.ResponseHeaders = new Dictionary<string, object>();
+                                                }
+                                                httpHandler.httpResponse.ResponseHeaders["Server"] = "softsunlight_webserver";
+                                                httpHandler.httpResponse.ResponseHeaders["Date"] = DateTime.Now.ToLongTimeString();
+                                            }
+                                        }
+                                    }
+                                    finally
+                                    {
+                                        if (httpHandler != null)
+                                        {
+                                            httpHandler.ProcessRequest();
+                                        }
+                                    }
                                 }
+                                else
+                                {
+                                    //不知道为什么，每次有个空连接
+                                    if (tcpClient != null)
+                                    {
+                                        tcpClient.Close();
+                                        tcpClient.Dispose();
+                                        tcpClient = null;
+                                    }
+                                }
+                            }
+                            catch (Exception ex)
+                            {
                                 if (tcpClient != null)
                                 {
                                     tcpClient.Close();
                                     tcpClient.Dispose();
                                     tcpClient = null;
                                 }
+                                break;
                             }
-                        }
-                        catch (Exception ex)
-                        {
-                            Log.Write("处理请求出错", ex);
-                            if (httpHandler == null)
-                            {
-                                httpHandler = new HttpHandler();
-                                if (httpHandler.httpResponse == null)
-                                {
-                                    httpHandler.httpResponse = new HttpResponse();
-                                    httpHandler.httpResponse.ResponseStream = tcpClient.GetStream();
-                                    httpHandler.httpResponse.ContentType = "text/html";
-                                    httpHandler.httpResponse.ResponseBody = File.ReadAllText(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "html/error_500.html")).Replace("@error", "处理您的请求出错了，" + ex.Message + "," + ex.Source + "," + ex.StackTrace);
-                                    httpHandler.httpResponse.StatusCode = "500";
-                                    httpHandler.httpResponse.StatusMessage = "Error";
-                                    if (httpHandler.httpResponse.ResponseHeaders == null)
-                                    {
-                                        httpHandler.httpResponse.ResponseHeaders = new Dictionary<string, object>();
-                                    }
-                                    httpHandler.httpResponse.ResponseHeaders["Server"] = "softsunlight_webserver";
-                                    httpHandler.httpResponse.ResponseHeaders["Date"] = DateTime.Now.ToLongTimeString();
-                                }
-                            }
-                        }
-                        finally
-                        {
-                            if (httpHandler != null)
-                            {
-                                httpHandler.ProcessRequest();
-                            }
-                            //if (networkStream != null)
-                            //{
-                            //    networkStream.Close();
-                            //    networkStream.Dispose();
-                            //    networkStream = null;
-                            //}
-                            //if (tcpClient != null)
-                            //{
-                            //    tcpClient.Close();
-                            //    tcpClient.Dispose();
-                            //    tcpClient = null;
-                            //}
                         }
                     });
                 }
@@ -333,11 +333,11 @@ namespace ThinkInAspNetCore.MiniMvc
                             {
                                 httpRequest.RequestHeaders = new Dictionary<string, object>();
                             }
-                            string[] tempArr = tempStr.Split(":");
-                            string key = tempArr[0].Trim();
-                            if (tempArr.Length >= 2)
+                            Match m = Regex.Match(tempStr, @"(?is)(?<key>[^:]*)\s*:\s*(?<value>.*)");
+                            if (m.Success)
                             {
-                                string value = tempArr[1].Trim();
+                                string key = m.Groups["key"].Value;
+                                string value = m.Groups["value"].Value;
                                 if (key.Equals("Content-Length", StringComparison.InvariantCultureIgnoreCase))
                                 {
                                     int length = 0;
@@ -353,7 +353,7 @@ namespace ThinkInAspNetCore.MiniMvc
                                 }
                                 else if (key.Equals("Cookie", StringComparison.InvariantCultureIgnoreCase))
                                 {
-                                    string[] cookies = tempArr[1].Split(";");
+                                    string[] cookies = value.Split(";");
                                     foreach (var cookie in cookies)
                                     {
                                         string[] keyvalues = cookie.Split("=");
@@ -373,13 +373,6 @@ namespace ThinkInAspNetCore.MiniMvc
                                     {
                                         httpRequest.RequestHeaders[key] = value;
                                     }
-                                }
-                            }
-                            else
-                            {
-                                if (!string.IsNullOrEmpty(key))
-                                {
-                                    httpRequest.RequestHeaders[key] = "";
                                 }
                             }
                         }
