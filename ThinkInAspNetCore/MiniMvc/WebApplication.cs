@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -72,32 +73,40 @@ namespace ThinkInAspNetCore.MiniMvc
                                             memoryStream.Dispose();
                                             memoryStream = null;
                                         }
-                                        int requestBodyStart = 0;
-                                        int lastSpaceCharIndex = 0;
-                                        httpRequest = GetRequestHeader(httpRequest, requestByteList, out requestBodyStart, out lastSpaceCharIndex);
-                                        if (httpRequest == null)
+                                        if (IsWebSocket(requestByteList.ToArray()))
                                         {
-                                            throw new Exception("请求内容为空");
+                                            isReadEnd = true;
+                                            httpRequest = BuildWebSocketRequest(tcpClient, requestByteList.ToArray());
                                         }
-                                        if (httpRequest.RequestHeaders.ContainsKey("Content-Length"))
+                                        else
                                         {
-                                            int contentLength = Convert.ToInt32(httpRequest.RequestHeaders["Content-Length"]);
-                                            if (requestByteList.Count >= contentLength)
+                                            int requestBodyStart = 0;
+                                            int lastSpaceCharIndex = 0;
+                                            httpRequest = GetRequestHeader(httpRequest, requestByteList.ToArray(), out requestBodyStart, out lastSpaceCharIndex);
+                                            if (httpRequest == null)
+                                            {
+                                                throw new Exception("请求内容为空");
+                                            }
+                                            if (httpRequest.RequestHeaders.ContainsKey("Content-Length"))
+                                            {
+                                                int contentLength = Convert.ToInt32(httpRequest.RequestHeaders["Content-Length"]);
+                                                if (requestByteList.Count >= contentLength)
+                                                {
+                                                    isReadEnd = true;
+                                                    string content = Encoding.UTF8.GetString(requestByteList.ToArray(), 0, requestBodyStart);
+                                                    Log.Write(content);
+                                                    httpRequest = BuildRequest(tcpClient, requestByteList.ToArray());
+                                                }
+                                            }
+                                            else
                                             {
                                                 isReadEnd = true;
                                                 string content = Encoding.UTF8.GetString(requestByteList.ToArray(), 0, requestBodyStart);
                                                 Log.Write(content);
-                                                httpRequest = BuildRequest(tcpClient, requestByteList);
+                                                httpRequest = BuildRequest(tcpClient, requestByteList.ToArray());
                                             }
+                                            httpHandler = new HttpHandler(httpRequest);
                                         }
-                                        else
-                                        {
-                                            isReadEnd = true;
-                                            string content = Encoding.UTF8.GetString(requestByteList.ToArray(), 0, requestBodyStart);
-                                            Log.Write(content);
-                                            httpRequest = BuildRequest(tcpClient, requestByteList);
-                                        }
-                                        httpHandler = new HttpHandler(httpRequest);
                                     }
                                     catch (Exception ex)
                                     {
@@ -177,17 +186,17 @@ namespace ThinkInAspNetCore.MiniMvc
         /// <param name="requestDatas"></param>
         /// <param name="requestBodyStart"></param>
         /// <returns></returns>
-        private static HttpRequest GetRequestHeader(HttpRequest httpRequest, List<byte> requestDatas, out int requestBodyStart, out int lastSpaceCharIndex)
+        private static HttpRequest GetRequestHeader(HttpRequest httpRequest, byte[] requestDatas, out int requestBodyStart, out int lastSpaceCharIndex)
         {
-            if (requestDatas.Count <= 0)
+            if (requestDatas.Length <= 0)
             {
                 throw new Exception("请求内容为空");
             }
             requestBodyStart = int.MaxValue;
             lastSpaceCharIndex = 0;
-            for (int i = 0; i < requestDatas.Count; i++)
+            for (int i = 0; i < requestDatas.Length; i++)
             {
-                if ((requestDatas[i] == 13 && requestDatas[i + 1] == 10) || i == requestDatas.Count - 1)
+                if ((requestDatas[i] == 13 && requestDatas[i + 1] == 10) || i == requestDatas.Length - 1)
                 {
                     //遇到空行，则下一行是表单域
                     if (i - lastSpaceCharIndex == 0)
@@ -205,7 +214,7 @@ namespace ThinkInAspNetCore.MiniMvc
                     }
                     if (i < requestBodyStart)
                     {
-                        string tempStr = Encoding.UTF8.GetString(requestDatas.ToArray(), lastSpaceCharIndex, i == requestDatas.Count ? i - lastSpaceCharIndex + 1 : i - lastSpaceCharIndex);
+                        string tempStr = Encoding.UTF8.GetString(requestDatas.ToArray(), lastSpaceCharIndex, i == requestDatas.Length ? i - lastSpaceCharIndex + 1 : i - lastSpaceCharIndex);
 
                         if (lastSpaceCharIndex == 0)
                         {
@@ -301,14 +310,14 @@ namespace ThinkInAspNetCore.MiniMvc
         /// <param name="tcpClient"></param>
         /// <param name="requestDatas"></param>
         /// <returns></returns>
-        private static HttpRequest BuildRequest(TcpClient tcpClient, List<byte> requestDatas)
+        private static HttpRequest BuildRequest(TcpClient tcpClient, byte[] requestDatas)
         {
             HttpRequest httpRequest = new HttpRequest();
             if (tcpClient.Connected)
             {
                 httpRequest.RequestStream = tcpClient.GetStream();
             }
-            if (requestDatas.Count <= 0)
+            if (requestDatas.Length <= 0)
             {
                 throw new Exception("请求内容为空");
             }
@@ -320,9 +329,9 @@ namespace ThinkInAspNetCore.MiniMvc
             bool isValue = false;
             string boundary = string.Empty;
             List<byte> fileDataList = new List<byte>();
-            for (int i = 0; i < requestDatas.Count; i++)
+            for (int i = 0; i < requestDatas.Length; i++)
             {
-                if ((requestDatas[i] == 13 && requestDatas[i + 1] == 10) || i == requestDatas.Count - 1)
+                if ((requestDatas[i] == 13 && requestDatas[i + 1] == 10) || i == requestDatas.Length - 1)
                 {
                     //遇到空行，则下一行是表单域
                     if (i - lastSpaceCharIndex == 0)
@@ -357,26 +366,12 @@ namespace ThinkInAspNetCore.MiniMvc
                                     boundary = boundaryMatch.Groups["boundary"].Value;
                                 }
                             }
-                            string tempStr = Encoding.UTF8.GetString(requestDatas.ToArray(), lastSpaceCharIndex, i == requestDatas.Count ? i - lastSpaceCharIndex + 1 : i - lastSpaceCharIndex);
+                            string tempStr = Encoding.UTF8.GetString(requestDatas, lastSpaceCharIndex, i == requestDatas.Length ? i - lastSpaceCharIndex + 1 : i - lastSpaceCharIndex);
                             if (tempStr.Contains(boundary))
                             {
                                 lastSpaceCharIndex = i + 2;
                                 i += 2;
-                                if (fileDataList.Count > 0)
-                                {
-                                    if (httpRequest.Files == null)
-                                    {
-                                        httpRequest.Files = new List<HttpFile>();
-                                    }
-                                    httpRequest.Files.Add(new HttpFile()
-                                    {
-                                        Name = name,
-                                        FileName = fileName,
-                                        FileDatas = fileDataList.ToArray(),
-                                        ContentType = contentType
-                                    });
-                                    fileDataList = new List<byte>();
-                                }
+
                                 if (!string.IsNullOrEmpty(name))
                                 {
                                     name = string.Empty;
@@ -431,14 +426,14 @@ namespace ThinkInAspNetCore.MiniMvc
                                 else
                                 {
                                     byte[] fileDatas = new byte[i - lastSpaceCharIndex];
-                                    Array.Copy(requestDatas.ToArray(), lastSpaceCharIndex, fileDatas, 0, i - lastSpaceCharIndex);
+                                    Array.Copy(requestDatas, lastSpaceCharIndex, fileDatas, 0, i - lastSpaceCharIndex);
                                     fileDataList.AddRange(fileDatas);
                                 }
                             }
                         }
                         else
                         {
-                            string tempStr = Encoding.UTF8.GetString(requestDatas.ToArray(), lastSpaceCharIndex, i == requestDatas.Count ? i - lastSpaceCharIndex + 1 : i - lastSpaceCharIndex);
+                            string tempStr = Encoding.UTF8.GetString(requestDatas, lastSpaceCharIndex, i == requestDatas.Length ? i - lastSpaceCharIndex + 1 : i - lastSpaceCharIndex);
                             if (!string.IsNullOrEmpty(tempStr))
                             {
                                 string[] formFields = tempStr.Split("&");
@@ -463,7 +458,7 @@ namespace ThinkInAspNetCore.MiniMvc
                     }
                     else
                     {
-                        string tempStr = Encoding.UTF8.GetString(requestDatas.ToArray(), lastSpaceCharIndex, i == requestDatas.Count ? i - lastSpaceCharIndex + 1 : i - lastSpaceCharIndex);
+                        string tempStr = Encoding.UTF8.GetString(requestDatas, lastSpaceCharIndex, i == requestDatas.Length ? i - lastSpaceCharIndex + 1 : i - lastSpaceCharIndex);
 
                         if (lastSpaceCharIndex == 0)
                         {
@@ -559,6 +554,88 @@ namespace ThinkInAspNetCore.MiniMvc
                     }
                 }
             }
+            return httpRequest;
+        }
+
+        /// <summary>
+        /// 判断是否是websocket数据
+        /// </summary>
+        /// <param name="requestDatas"></param>
+        /// <returns></returns>
+        private bool IsWebSocket(byte[] requestDatas)
+        {
+            //刺探性的获取前10个字节
+            int length = 10;
+            if (length > requestDatas.Length)
+            {
+                length = requestDatas.Length;
+            }
+            byte[] bytes = new byte[length];
+            Array.Copy(requestDatas, bytes, length);
+            string str = Encoding.UTF8.GetString(bytes);
+            Type type = typeof(HttpRequestMethod);
+            if (!Regex.IsMatch(str, @"(?is)" + string.Join("|", type.GetFields().Select(p => p.Name))))
+            {
+                return true;
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// 构造WebSocket请求类
+        /// </summary>
+        /// <param name="tcpClient"></param>
+        /// <param name="requestDatas"></param>
+        /// <returns></returns>
+        private static HttpRequest BuildWebSocketRequest(TcpClient tcpClient, byte[] requestDatas)
+        {
+            HttpRequest httpRequest = new HttpRequest();
+            if (tcpClient.Connected)
+            {
+                httpRequest.RequestStream = tcpClient.GetStream();
+            }
+            if (requestDatas.Length <= 0)
+            {
+                throw new Exception("请求内容为空");
+            }
+            //先读第一个字节(FIN(1) RSV(1) RSV(1) RSV(1) opcode(4))
+            BitArray firstByteArray = new BitArray(new byte[1] { requestDatas[0] });
+            if (firstByteArray.Get(0))//消息最后一个frame
+            {
+
+            }
+            int[] opcodeArray = new int[1];
+            for (var i = 4; i < firstByteArray.Length; i++)
+            {
+                firstByteArray.CopyTo(opcodeArray, 0);
+            }
+            int opcode = opcodeArray[0];
+            //第二个字节(mask(1) 'payload len'(7))
+            BitArray secondByteArray = new BitArray(new byte[1] { requestDatas[1] });
+            ushort[] payloadLenArray = new ushort[1];
+            for (var i = 1; i < secondByteArray.Length; i++)
+            {
+                secondByteArray.CopyTo(payloadLenArray, 0);
+            }
+            int payloadLen = payloadLenArray[0];
+            long realLen = payloadLen;
+            if (payloadLen == 126)
+            {
+                realLen = BitConverter.ToUInt16(requestDatas, 2);
+            }
+            else if (payloadLen == 127)
+            {
+                realLen = BitConverter.ToInt64(requestDatas, 2);
+            }
+            //Mask
+            int maskKey = 0;
+            if (secondByteArray.Get(0))
+            {
+                maskKey = BitConverter.ToInt32(requestDatas, 10);
+            }
+            //数据
+            byte[] datas = new byte[realLen];
+            Array.Copy(requestDatas, 14, datas, 0, realLen);
             return httpRequest;
         }
 

@@ -32,7 +32,7 @@ namespace ThinkInAspNetCore.MiniMvc
         {
             try
             {
-                if (!string.IsNullOrEmpty(filePath) && FileDatas.Length > 0)
+                if (!string.IsNullOrEmpty(filePath) && FileDatas != null)
                 {
                     File.WriteAllBytes(filePath, FileDatas);
                 }
