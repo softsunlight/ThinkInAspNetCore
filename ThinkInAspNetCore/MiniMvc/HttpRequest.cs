@@ -15,7 +15,7 @@ namespace ThinkInAspNetCore.MiniMvc
         /// </summary>
         /// <param name="key"></param>
         /// <returns></returns>
-        public string this[string key]
+        public List<string> this[string key]
         {
             get
             {
@@ -73,11 +73,11 @@ namespace ThinkInAspNetCore.MiniMvc
         /// <summary>
         /// url地址中的请求参数
         /// </summary>
-        public Dictionary<string, string> QueryString { get; set; }
+        public Dictionary<string, List<string>> QueryString { get; set; }
         /// <summary>
         /// 表单数据
         /// </summary>
-        public Dictionary<string, string> Form { get; set; }
+        public Dictionary<string, List<string>> Form { get; set; }
         /// <summary>
         /// Http请求文件集合
         /// </summary>

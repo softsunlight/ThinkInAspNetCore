@@ -81,5 +81,10 @@ namespace ThinkInAspNetCore.MiniMvc.Controllers
             return View("Form");
         }
 
+        public IActionResult WebSocketTest()
+        {
+            return View("WebSocketTest");
+        }
+
     }
 }

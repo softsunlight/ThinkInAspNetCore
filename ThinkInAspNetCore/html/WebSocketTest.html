@@ -1,0 +1,32 @@
+﻿<!DOCTYPE html>
+
+<html lang="en" xmlns="http://www.w3.org/1999/xhtml">
+<head>
+    <meta charset="utf-8" />
+    <title>softsunlight_webserver</title>
+    <link href="css/site.css" rel="stylesheet" />
+</head>
+<body>
+    <h1>softsunlight_webserver WebSocket test</h1>
+    <button type="button" id="btn">create websocket</button>
+    <input type="text" id="text1" /><button type="button" id="send">send</button>
+    <script>
+        var ws = null;
+        document.getElementById("btn").onclick = function () {
+            ws = new WebSocket("ws://127.0.0.1:5000");
+            ws.onopen = function () {
+                console.log("open");
+            }
+            ws.onmessage = function (m) {
+                console.log(m);
+            }
+            ws.onclose = function (m) {
+                console.log("close");
+            }
+        }
+        document.getElementById("send").onclick = function () {
+            ws.send(document.getElementById("text1").value);
+        }
+    </script>
+</body>
+</html>

@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.IO;
 using System.Reflection;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
 
@@ -86,6 +87,24 @@ namespace ThinkInAspNetCore.MiniMvc
                         httpResponse.StatusMessage = "No Content";
                         return;
                     }
+                }
+
+                //web socket
+                if (httpRequest.RequestHeaders.ContainsKey("Upgrade") && httpRequest.RequestHeaders["Upgrade"].Equals("websocket"))
+                {
+                    //
+                    var buffer = Encoding.UTF8.GetBytes(httpRequest.RequestHeaders["Sec-WebSocket-Key"].ToString() + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11");
+                    var data = SHA1.Create().ComputeHash(buffer);
+                    httpResponse.StatusCode = "101";
+                    httpResponse.StatusMessage = "Switching Protocols";
+                    if (httpResponse.ResponseHeaders == null)
+                    {
+                        httpResponse.ResponseHeaders = new Dictionary<string, object>();
+                    }
+                    httpResponse.ResponseHeaders.Add("Connection", "Upgrade");
+                    httpResponse.ResponseHeaders.Add("Upgrade", "websocket");
+                    httpResponse.ResponseHeaders.Add("Sec-WebSocket-Accept", Convert.ToBase64String(data));
+                    return;
                 }
 
                 if (Regex.IsMatch(httpRequest.RequstUrl, @".+\..+"))//静态文件

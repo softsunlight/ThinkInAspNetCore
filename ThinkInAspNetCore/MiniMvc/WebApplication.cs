@@ -40,6 +40,7 @@ namespace ThinkInAspNetCore.MiniMvc
                     TcpClient tcpClient = tcpListener.AcceptTcpClient();
                     Task.Run(() =>
                     {
+                        List<byte> requestByteList = new List<byte>();
                         while (true)
                         {
                             //http1.1 默认是持久链接
@@ -49,6 +50,8 @@ namespace ThinkInAspNetCore.MiniMvc
                                 MemoryStream memoryStream = new MemoryStream();
                                 int recvTotals = 0;
                                 int realLength = 0;
+                                //是否完整的读取了请求信息
+                                bool isReadEnd = false;
                                 do
                                 {
                                     byte[] buffer = new byte[512];
@@ -62,14 +65,37 @@ namespace ThinkInAspNetCore.MiniMvc
                                     HttpRequest httpRequest = new HttpRequest();
                                     try
                                     {
-                                        httpRequest = BuildRequest(tcpClient, memoryStream.ToArray());
-                                        string content = Encoding.UTF8.GetString(memoryStream.ToArray());
-                                        Log.Write(content);
+                                        requestByteList.AddRange(memoryStream.ToArray());
                                         if (memoryStream != null)
                                         {
                                             memoryStream.Close();
                                             memoryStream.Dispose();
                                             memoryStream = null;
+                                        }
+                                        int requestBodyStart = 0;
+                                        int lastSpaceCharIndex = 0;
+                                        httpRequest = GetRequestHeader(httpRequest, requestByteList, out requestBodyStart, out lastSpaceCharIndex);
+                                        if (httpRequest == null)
+                                        {
+                                            throw new Exception("请求内容为空");
+                                        }
+                                        if (httpRequest.RequestHeaders.ContainsKey("Content-Length"))
+                                        {
+                                            int contentLength = Convert.ToInt32(httpRequest.RequestHeaders["Content-Length"]);
+                                            if (requestByteList.Count >= contentLength)
+                                            {
+                                                isReadEnd = true;
+                                                string content = Encoding.UTF8.GetString(requestByteList.ToArray(), 0, requestBodyStart);
+                                                Log.Write(content);
+                                                httpRequest = BuildRequest(tcpClient, requestByteList);
+                                            }
+                                        }
+                                        else
+                                        {
+                                            isReadEnd = true;
+                                            string content = Encoding.UTF8.GetString(requestByteList.ToArray(), 0, requestBodyStart);
+                                            Log.Write(content);
+                                            httpRequest = BuildRequest(tcpClient, requestByteList);
                                         }
                                         httpHandler = new HttpHandler(httpRequest);
                                     }
@@ -98,9 +124,16 @@ namespace ThinkInAspNetCore.MiniMvc
                                     }
                                     finally
                                     {
-                                        if (httpHandler != null)
+                                        if (isReadEnd)
                                         {
-                                            httpHandler.ProcessRequest();
+                                            if (httpHandler != null)
+                                            {
+                                                httpHandler.ProcessRequest();
+                                            }
+                                            if (requestByteList != null && requestByteList.Count > 0)
+                                            {
+                                                requestByteList.Clear();
+                                            }
                                         }
                                     }
                                 }
@@ -113,6 +146,7 @@ namespace ThinkInAspNetCore.MiniMvc
                                         tcpClient.Dispose();
                                         tcpClient = null;
                                     }
+                                    break;
                                 }
                             }
                             catch (Exception ex)
@@ -138,19 +172,143 @@ namespace ThinkInAspNetCore.MiniMvc
         }
 
         /// <summary>
+        /// 获取请求头
+        /// </summary>
+        /// <param name="requestDatas"></param>
+        /// <param name="requestBodyStart"></param>
+        /// <returns></returns>
+        private static HttpRequest GetRequestHeader(HttpRequest httpRequest, List<byte> requestDatas, out int requestBodyStart, out int lastSpaceCharIndex)
+        {
+            if (requestDatas.Count <= 0)
+            {
+                throw new Exception("请求内容为空");
+            }
+            requestBodyStart = int.MaxValue;
+            lastSpaceCharIndex = 0;
+            for (int i = 0; i < requestDatas.Count; i++)
+            {
+                if ((requestDatas[i] == 13 && requestDatas[i + 1] == 10) || i == requestDatas.Count - 1)
+                {
+                    //遇到空行，则下一行是表单域
+                    if (i - lastSpaceCharIndex == 0)
+                    {
+                        if (requestBodyStart == int.MaxValue)
+                        {
+                            requestBodyStart = i + 2;
+                            lastSpaceCharIndex = requestBodyStart;
+                        }
+                        break;
+                    }
+                    if (i <= lastSpaceCharIndex)
+                    {
+                        continue;
+                    }
+                    if (i < requestBodyStart)
+                    {
+                        string tempStr = Encoding.UTF8.GetString(requestDatas.ToArray(), lastSpaceCharIndex, i == requestDatas.Count ? i - lastSpaceCharIndex + 1 : i - lastSpaceCharIndex);
+
+                        if (lastSpaceCharIndex == 0)
+                        {
+                            string[] tempArr = tempStr.Split(" ");
+                            httpRequest.Method = tempArr[0];
+                            string requestUri = tempArr[1];
+                            string[] urlAndQueryString = requestUri.Split("?");
+                            if (urlAndQueryString.Length >= 2)
+                            {
+                                httpRequest.RequstUrl = urlAndQueryString[0];
+                                string[] queryStrings = urlAndQueryString[1].Split("&");
+                                foreach (var queryString in queryStrings)
+                                {
+                                    string[] keyvalues = queryString.Split("=");
+                                    if (keyvalues.Length >= 2)
+                                    {
+                                        if (httpRequest.QueryString == null)
+                                        {
+                                            httpRequest.QueryString = new Dictionary<string, List<string>>();
+                                        }
+                                        httpRequest.QueryString[keyvalues[0].Trim()].Add(keyvalues[1].Trim());
+                                    }
+                                }
+                            }
+                            else if (urlAndQueryString.Length >= 1)
+                            {
+                                httpRequest.RequstUrl = urlAndQueryString[0];
+                            }
+                            httpRequest.Version = tempArr[2];
+                        }
+                        else
+                        {
+                            //请求头
+                            if (httpRequest.RequestHeaders == null)
+                            {
+                                httpRequest.RequestHeaders = new Dictionary<string, object>();
+                            }
+                            Match m = Regex.Match(tempStr, @"(?is)(?<key>[^:]*)\s*:\s*(?<value>.*)");
+                            if (m.Success)
+                            {
+                                string key = m.Groups["key"].Value;
+                                string value = m.Groups["value"].Value;
+                                if (key.Equals("Content-Length", StringComparison.InvariantCultureIgnoreCase))
+                                {
+                                    int length = 0;
+                                    try
+                                    {
+                                        length = Convert.ToInt32(value);
+                                    }
+                                    catch (Exception ex)
+                                    {
+
+                                    }
+                                    httpRequest.RequestHeaders[key] = length;
+                                }
+                                else if (key.Equals("Cookie", StringComparison.InvariantCultureIgnoreCase))
+                                {
+                                    string[] cookies = value.Split(";");
+                                    foreach (var cookie in cookies)
+                                    {
+                                        string[] keyvalues = cookie.Split("=");
+                                        if (keyvalues.Length >= 2)
+                                        {
+                                            if (httpRequest.Cookies == null)
+                                            {
+                                                httpRequest.Cookies = new List<HttpCookie>();
+                                            }
+                                            httpRequest.Cookies.Add(new HttpCookie(keyvalues[0].Trim(), keyvalues[1].Trim()));
+                                        }
+                                    }
+                                }
+                                else
+                                {
+                                    if (!string.IsNullOrEmpty(key))
+                                    {
+                                        httpRequest.RequestHeaders[key] = value;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    {
+                        lastSpaceCharIndex = i + 2;
+                    }
+                }
+            }
+            return httpRequest;
+        }
+
+        /// <summary>
         /// 构造Http请求类
         /// </summary>
         /// <param name="tcpClient"></param>
         /// <param name="requestDatas"></param>
         /// <returns></returns>
-        private static HttpRequest BuildRequest(TcpClient tcpClient, byte[] requestDatas)
+        private static HttpRequest BuildRequest(TcpClient tcpClient, List<byte> requestDatas)
         {
             HttpRequest httpRequest = new HttpRequest();
             if (tcpClient.Connected)
             {
                 httpRequest.RequestStream = tcpClient.GetStream();
             }
-            if (requestDatas.Length <= 0)
+            if (requestDatas.Count <= 0)
             {
                 throw new Exception("请求内容为空");
             }
@@ -162,9 +320,9 @@ namespace ThinkInAspNetCore.MiniMvc
             bool isValue = false;
             string boundary = string.Empty;
             List<byte> fileDataList = new List<byte>();
-            for (int i = 0; i < requestDatas.Length; i++)
+            for (int i = 0; i < requestDatas.Count; i++)
             {
-                if ((requestDatas[i] == 13 && requestDatas[i + 1] == 10) || i == requestDatas.Length - 1)
+                if ((requestDatas[i] == 13 && requestDatas[i + 1] == 10) || i == requestDatas.Count - 1)
                 {
                     //遇到空行，则下一行是表单域
                     if (i - lastSpaceCharIndex == 0)
@@ -199,10 +357,11 @@ namespace ThinkInAspNetCore.MiniMvc
                                     boundary = boundaryMatch.Groups["boundary"].Value;
                                 }
                             }
-                            string tempStr = Encoding.UTF8.GetString(requestDatas, lastSpaceCharIndex, i == requestDatas.Length ? i - lastSpaceCharIndex + 1 : i - lastSpaceCharIndex);
+                            string tempStr = Encoding.UTF8.GetString(requestDatas.ToArray(), lastSpaceCharIndex, i == requestDatas.Count ? i - lastSpaceCharIndex + 1 : i - lastSpaceCharIndex);
                             if (tempStr.Contains(boundary))
                             {
                                 lastSpaceCharIndex = i + 2;
+                                i += 2;
                                 if (fileDataList.Count > 0)
                                 {
                                     if (httpRequest.Files == null)
@@ -230,6 +389,7 @@ namespace ThinkInAspNetCore.MiniMvc
                                 {
                                     contentType = string.Empty;
                                 }
+                                isValue = false;
                                 continue;
                             }
                             Regex nameReg = new Regex(@"name=""(?<name>[^""]*)""");
@@ -258,23 +418,27 @@ namespace ThinkInAspNetCore.MiniMvc
                                     {
                                         if (httpRequest.Form == null)
                                         {
-                                            httpRequest.Form = new Dictionary<string, string>();
+                                            httpRequest.Form = new Dictionary<string, List<string>>();
                                         }
-                                        httpRequest.Form[name] = tempStr;
+                                        if (!httpRequest.Form.ContainsKey(name))
+                                        {
+                                            httpRequest.Form[name] = new List<string>();
+                                        }
+                                        httpRequest.Form[name].Add(tempStr);
                                     }
                                     isValue = false;
                                 }
                                 else
                                 {
                                     byte[] fileDatas = new byte[i - lastSpaceCharIndex];
-                                    Array.Copy(requestDatas, lastSpaceCharIndex, fileDatas, 0, i - lastSpaceCharIndex);
+                                    Array.Copy(requestDatas.ToArray(), lastSpaceCharIndex, fileDatas, 0, i - lastSpaceCharIndex);
                                     fileDataList.AddRange(fileDatas);
                                 }
                             }
                         }
                         else
                         {
-                            string tempStr = Encoding.UTF8.GetString(requestDatas, lastSpaceCharIndex, i == requestDatas.Length ? i - lastSpaceCharIndex + 1 : i - lastSpaceCharIndex);
+                            string tempStr = Encoding.UTF8.GetString(requestDatas.ToArray(), lastSpaceCharIndex, i == requestDatas.Count ? i - lastSpaceCharIndex + 1 : i - lastSpaceCharIndex);
                             if (!string.IsNullOrEmpty(tempStr))
                             {
                                 string[] formFields = tempStr.Split("&");
@@ -285,9 +449,13 @@ namespace ThinkInAspNetCore.MiniMvc
                                     {
                                         if (httpRequest.Form == null)
                                         {
-                                            httpRequest.Form = new Dictionary<string, string>();
+                                            httpRequest.Form = new Dictionary<string, List<string>>();
                                         }
-                                        httpRequest.Form[keyvalues[0]] = keyvalues[1];
+                                        if (!httpRequest.Form.ContainsKey(name))
+                                        {
+                                            httpRequest.Form[name] = new List<string>();
+                                        }
+                                        httpRequest.Form[keyvalues[0]].Add(keyvalues[1]);
                                     }
                                 }
                             }
@@ -295,7 +463,7 @@ namespace ThinkInAspNetCore.MiniMvc
                     }
                     else
                     {
-                        string tempStr = Encoding.UTF8.GetString(requestDatas, lastSpaceCharIndex, i == requestDatas.Length ? i - lastSpaceCharIndex + 1 : i - lastSpaceCharIndex);
+                        string tempStr = Encoding.UTF8.GetString(requestDatas.ToArray(), lastSpaceCharIndex, i == requestDatas.Count ? i - lastSpaceCharIndex + 1 : i - lastSpaceCharIndex);
 
                         if (lastSpaceCharIndex == 0)
                         {
@@ -314,9 +482,13 @@ namespace ThinkInAspNetCore.MiniMvc
                                     {
                                         if (httpRequest.QueryString == null)
                                         {
-                                            httpRequest.QueryString = new Dictionary<string, string>();
+                                            httpRequest.QueryString = new Dictionary<string, List<string>>();
                                         }
-                                        httpRequest.QueryString[keyvalues[0].Trim()] = keyvalues[1].Trim();
+                                        if (!httpRequest.QueryString.ContainsKey(keyvalues[0].Trim()))
+                                        {
+                                            httpRequest.QueryString[keyvalues[0].Trim()] = new List<string>();
+                                        }
+                                        httpRequest.QueryString[keyvalues[0].Trim()].Add(keyvalues[1].Trim());
                                     }
                                 }
                             }
