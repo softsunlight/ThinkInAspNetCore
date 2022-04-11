@@ -119,7 +119,7 @@ namespace ThinkInAspNetCore.MiniMvc
                     {
                         httpResponse.StatusCode = "200";
                         httpResponse.StatusMessage = "OK";
-                        httpResponse.ResponseBody = File.ReadAllText(filePath);
+                        httpResponse.ResponseBody = Encoding.UTF8.GetBytes(File.ReadAllText(filePath));
                     }
                 }
                 else
@@ -177,7 +177,7 @@ namespace ThinkInAspNetCore.MiniMvc
             catch (Exception ex)
             {
                 httpResponse.ContentType = "text/html";
-                httpResponse.ResponseBody = File.ReadAllText(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "html/error_500.html")).Replace("@error", "处理您的请求出错了，" + ex.Message + "," + ex.Source + "," + ex.StackTrace);
+                httpResponse.ResponseBody = Encoding.UTF8.GetBytes(File.ReadAllText(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "html/error_500.html")).Replace("@error", "处理您的请求出错了，" + ex.Message + "," + ex.Source + "," + ex.StackTrace));
                 httpResponse.StatusCode = "500";
                 httpResponse.StatusMessage = "Error";
                 if (httpResponse.ResponseHeaders == null)

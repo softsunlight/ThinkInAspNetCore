@@ -47,7 +47,7 @@ namespace ThinkInAspNetCore.MiniMvc.Abstracts
                 {
                     response.StatusCode = "200";
                     response.StatusMessage = "OK";
-                    response.ResponseBody = File.ReadAllText(filePath);
+                    response.ResponseBody = Encoding.UTF8.GetBytes(File.ReadAllText(filePath));
                 }
             }
         }

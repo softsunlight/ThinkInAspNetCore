@@ -9,6 +9,9 @@
     <None Update="css\site.css">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </None>
+    <None Update="html\ajax.html">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </None>
     <None Update="html\error_500.html">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </None>

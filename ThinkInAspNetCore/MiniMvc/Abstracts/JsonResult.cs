@@ -34,11 +34,11 @@ namespace ThinkInAspNetCore.MiniMvc.Abstracts
                 response.ResponseHeaders["Content-Type"] = "application/json;charset=utf-8";
                 if (jsonData == null)
                 {
-                    response.ResponseBody = "{}";
+                    response.ResponseBody = Encoding.UTF8.GetBytes("{}");
                 }
                 else
                 {
-                    response.ResponseBody = JsonSerializer.Serialize(jsonData);
+                    response.ResponseBody = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(jsonData));
                 }
                 response.StatusCode = "200";
                 response.StatusMessage = "OK";

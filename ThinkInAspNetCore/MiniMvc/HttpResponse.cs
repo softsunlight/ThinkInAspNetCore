@@ -87,7 +87,7 @@ namespace ThinkInAspNetCore.MiniMvc
         /// <summary>
         /// 响应体
         /// </summary>
-        public string ResponseBody { get; set; }
+        public byte[] ResponseBody { get; set; }
         /// <summary>
         /// 响应流
         /// </summary>
@@ -136,9 +136,9 @@ namespace ThinkInAspNetCore.MiniMvc
             ////使用deflate压缩
             //stringBuilder.Append("Content-Encoding:deflate").Append(Environment.NewLine);
             //stringBuilder.Append("Vary:Accept-Encoding").Append(Environment.NewLine);
-            if (!string.IsNullOrEmpty(ResponseBody))
+            if (ResponseBody != null && ResponseBody.Length > 0)
             {
-                stringBuilder.Append("Content-Length:").Append(Encoding.UTF8.GetByteCount(ResponseBody)).Append(Environment.NewLine);
+                stringBuilder.Append("Content-Length:").Append(ResponseBody.Length).Append(Environment.NewLine);
                 stringBuilder.Append(Environment.NewLine);
                 stringBuilder.Append(ResponseBody);
             }

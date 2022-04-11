@@ -90,5 +90,9 @@ namespace ThinkInAspNetCore.MiniMvc
         /// 请求流
         /// </summary>
         public NetworkStream RequestStream { get; set; }
+        /// <summary>
+        /// 是否是WebSocket数据
+        /// </summary>
+        public bool IsWebSocket { get; set; }
     }
 }

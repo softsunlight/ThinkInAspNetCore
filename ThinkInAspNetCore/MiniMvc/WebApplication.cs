@@ -9,6 +9,7 @@ using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
+using ThinkInAspNetCore.MiniMvc.WebSocket;
 
 namespace ThinkInAspNetCore.MiniMvc
 {
@@ -42,6 +43,7 @@ namespace ThinkInAspNetCore.MiniMvc
                     Task.Run(() =>
                     {
                         List<byte> requestByteList = new List<byte>();
+                        List<WebSocketFrame> frames = new List<WebSocketFrame>();
                         while (true)
                         {
                             //http1.1 默认是持久链接
@@ -66,20 +68,28 @@ namespace ThinkInAspNetCore.MiniMvc
                                     HttpRequest httpRequest = new HttpRequest();
                                     try
                                     {
-                                        requestByteList.AddRange(memoryStream.ToArray());
+                                        byte[] requestDatas = memoryStream.ToArray();
                                         if (memoryStream != null)
                                         {
                                             memoryStream.Close();
                                             memoryStream.Dispose();
                                             memoryStream = null;
                                         }
-                                        if (IsWebSocket(requestByteList.ToArray()))
+                                        if (IsWebSocket(requestDatas))
                                         {
-                                            isReadEnd = true;
-                                            httpRequest = BuildWebSocketRequest(tcpClient, requestByteList.ToArray());
+                                            WebSocketUtils webSocketUtils = new WebSocketUtils();
+                                            WebSocketFrame webSocketFrame = webSocketUtils.GetWebSocketFrame(requestDatas);
+                                            frames.Add(webSocketFrame);
+                                            if (webSocketFrame.Fin)
+                                            {
+                                                //开始处理WebSocket请求
+                                            }
+                                            //isReadEnd = true;
+                                            //httpRequest = BuildWebSocketRequest(tcpClient, requestByteList.ToArray());
                                         }
                                         else
                                         {
+                                            requestByteList.AddRange(requestDatas);
                                             int requestBodyStart = 0;
                                             int lastSpaceCharIndex = 0;
                                             httpRequest = GetRequestHeader(httpRequest, requestByteList.ToArray(), out requestBodyStart, out lastSpaceCharIndex);
@@ -119,7 +129,7 @@ namespace ThinkInAspNetCore.MiniMvc
                                                 httpHandler.httpResponse = new HttpResponse();
                                                 httpHandler.httpResponse.ResponseStream = tcpClient.GetStream();
                                                 httpHandler.httpResponse.ContentType = "text/html";
-                                                httpHandler.httpResponse.ResponseBody = File.ReadAllText(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "html/error_500.html")).Replace("@error", "处理您的请求出错了，" + ex.Message + "," + ex.Source + "," + ex.StackTrace);
+                                                httpHandler.httpResponse.ResponseBody = Encoding.UTF8.GetBytes(File.ReadAllText(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "html/error_500.html")).Replace("@error", "处理您的请求出错了，" + ex.Message + "," + ex.Source + "," + ex.StackTrace));
                                                 httpHandler.httpResponse.StatusCode = "500";
                                                 httpHandler.httpResponse.StatusMessage = "Error";
                                                 if (httpHandler.httpResponse.ResponseHeaders == null)
@@ -371,7 +381,21 @@ namespace ThinkInAspNetCore.MiniMvc
                             {
                                 lastSpaceCharIndex = i + 2;
                                 i += 2;
-
+                                if (fileDataList.Count > 0)
+                                {
+                                    if (httpRequest.Files == null)
+                                    {
+                                        httpRequest.Files = new List<HttpFile>();
+                                    }
+                                    httpRequest.Files.Add(new HttpFile()
+                                    {
+                                        Name = name,
+                                        FileName = fileName,
+                                        FileDatas = fileDataList.ToArray(),
+                                        ContentType = contentType
+                                    });
+                                    fileDataList = new List<byte>();
+                                }
                                 if (!string.IsNullOrEmpty(name))
                                 {
                                     name = string.Empty;
@@ -599,43 +623,63 @@ namespace ThinkInAspNetCore.MiniMvc
                 throw new Exception("请求内容为空");
             }
             //先读第一个字节(FIN(1) RSV(1) RSV(1) RSV(1) opcode(4))
-            BitArray firstByteArray = new BitArray(new byte[1] { requestDatas[0] });
-            if (firstByteArray.Get(0))//消息最后一个frame
+            BitArray firstByteBitArray = new BitArray(new byte[1] { requestDatas[0] });
+            if (firstByteBitArray.Get(firstByteBitArray.Length - 1))//消息最后一个frame
             {
 
             }
-            int[] opcodeArray = new int[1];
-            for (var i = 4; i < firstByteArray.Length; i++)
+            BitArray opcodeBitArray = new BitArray(4);
+            for (var i = 0; i < 4; i++)
             {
-                firstByteArray.CopyTo(opcodeArray, 0);
+                opcodeBitArray.Set(i, firstByteBitArray[i]);
             }
+            int[] opcodeArray = new int[1];
+            opcodeBitArray.CopyTo(opcodeArray, 0);
             int opcode = opcodeArray[0];
             //第二个字节(mask(1) 'payload len'(7))
-            BitArray secondByteArray = new BitArray(new byte[1] { requestDatas[1] });
-            ushort[] payloadLenArray = new ushort[1];
-            for (var i = 1; i < secondByteArray.Length; i++)
+            BitArray secondByteBitArray = new BitArray(new byte[1] { requestDatas[1] });
+            BitArray payloadLenBitArray = new BitArray(7);
+            for (var i = 0; i < 7; i++)
             {
-                secondByteArray.CopyTo(payloadLenArray, 0);
+                payloadLenBitArray.Set(i, secondByteBitArray[i]);
             }
+            int[] payloadLenArray = new int[1];
+            payloadLenBitArray.CopyTo(payloadLenArray, 0);
             int payloadLen = payloadLenArray[0];
             long realLen = payloadLen;
+            int maskKeyStart = 2;
             if (payloadLen == 126)
             {
                 realLen = BitConverter.ToUInt16(requestDatas, 2);
+                maskKeyStart = 4;
             }
             else if (payloadLen == 127)
             {
                 realLen = BitConverter.ToInt64(requestDatas, 2);
+                maskKeyStart = 12;
             }
             //Mask
-            int maskKey = 0;
-            if (secondByteArray.Get(0))
+            byte[] maskKeyBytes = new byte[4];
+            if (secondByteBitArray.Get(secondByteBitArray.Length - 1))
             {
-                maskKey = BitConverter.ToInt32(requestDatas, 10);
+                Array.Copy(requestDatas, maskKeyStart, maskKeyBytes, 0, maskKeyBytes.Length);
             }
-            //数据
-            byte[] datas = new byte[realLen];
-            Array.Copy(requestDatas, 14, datas, 0, realLen);
+            if (realLen > 0)
+            {
+                //数据
+                byte[] encodeDatas = new byte[realLen];
+                Array.Copy(requestDatas, maskKeyStart + 4, encodeDatas, 0, realLen);
+                //解码
+                byte[] decodeDatas = new byte[realLen];
+                for (var i = 0; i < encodeDatas.Length; i++)
+                {
+                    decodeDatas[i] = (byte)(encodeDatas[i] ^ maskKeyBytes[i % 4]);
+                }
+                if (opcode == 1)
+                {
+                    string str = Encoding.UTF8.GetString(decodeDatas);
+                }
+            }
             return httpRequest;
         }
 

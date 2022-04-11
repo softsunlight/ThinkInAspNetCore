@@ -1,0 +1,59 @@
+﻿<!DOCTYPE html>
+
+<html lang="en" xmlns="http://www.w3.org/1999/xhtml">
+<head>
+    <meta charset="utf-8" />
+    <title>softsunlight_webserver</title>
+</head>
+<body>
+    <h1>softsunlight_webserver ajax</h1>
+    <form>
+        <input type="file" name="file1" id="file1" multiple />
+        <button type="button" id="btn">submit</button>
+    </form>
+    <script src="http://code.jquery.com/jquery-2.1.1.min.js"></script>
+    <script>
+        $(function () {
+            $("#btn").on("click", function () {
+                var formData = new FormData();
+                formData.append("file1", $("#file1")[0].files[1]);
+                $.ajax({
+                    url: "/Home/SaveFile",
+                    type: "post",
+                    data: formData,
+                    processData: false,
+                    contentType: false,
+                    success: function (data) {
+                        console.log(data);
+                    }
+                });
+
+                var formData2 = new FormData();
+                formData2.append("file1", $("#file1")[0].files[0]);
+                $.ajax({
+                    url: "/Home/SaveFile",
+                    type: "post",
+                    data: formData2,
+                    processData: false,
+                    contentType: false,
+                    success: function (data) {
+                        console.log(data);
+                    }
+                });
+
+                //setTimeout(function () {
+                //    $.ajax({
+                //        url: "/Home/Test",
+                //        type: "post",
+                //        data: {},
+                //        success: function (data) {
+                //            console.log(data);
+                //        }
+                //    });
+                //}, 2)
+            });
+
+        });
+    </script>
+</body>
+</html>
