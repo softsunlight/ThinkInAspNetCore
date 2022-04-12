@@ -13,9 +13,23 @@ using ThinkInAspNetCore.MiniMvc.WebSocket;
 
 namespace ThinkInAspNetCore.MiniMvc
 {
+    /// <summary>
+    /// Web应用
+    /// </summary>
     public class WebApplication
     {
         private string[] args;
+
+        /// <summary>
+        /// 处理Http请求的委托
+        /// </summary>
+        /// <param name="httpContext">请求上下文</param>
+        /// <returns></returns>
+        public delegate Task RequestDelegate(HttpContext httpContext);
+        /// <summary>
+        /// 处理Http请求的委托列表
+        /// </summary>
+        private List<Func<RequestDelegate, RequestDelegate>> list = new List<Func<RequestDelegate, RequestDelegate>>();
 
         public WebApplication()
         {
@@ -25,6 +39,31 @@ namespace ThinkInAspNetCore.MiniMvc
         public WebApplication(string[] args)
         {
             this.args = args;
+        }
+
+        /// <summary>
+        /// 配置中间件
+        /// </summary>
+        /// <param name="func"></param>
+        /// <returns></returns>
+        public WebApplication Use(Func<RequestDelegate, RequestDelegate> func)
+        {
+            list.Add(func);
+            return this;
+        }
+
+        /// <summary>
+        /// 配置中间件
+        /// </summary>
+        /// <param name="middleware"></param>
+        /// <returns></returns>
+        public WebApplication Use(Func<HttpContext, Func<Task>, Task> middleware)
+        {
+            return Use((Func<RequestDelegate, RequestDelegate>)(next => (RequestDelegate)(context =>
+            {
+                Func<Task> func = (Func<Task>)(() => next(context));
+                return middleware(context, func);
+            })));
         }
 
         /// <summary>
@@ -64,8 +103,8 @@ namespace ThinkInAspNetCore.MiniMvc
                                 } while (networkStream.DataAvailable);
                                 if (recvTotals > 0)
                                 {
-                                    HttpHandler httpHandler = null;
                                     HttpRequest httpRequest = new HttpRequest();
+                                    HttpContext httpContext = new HttpContext();
                                     try
                                     {
                                         byte[] requestDatas = memoryStream.ToArray();
@@ -115,40 +154,45 @@ namespace ThinkInAspNetCore.MiniMvc
                                                 Log.Write(content);
                                                 httpRequest = BuildRequest(tcpClient, requestByteList.ToArray());
                                             }
-                                            httpHandler = new HttpHandler(httpRequest);
+                                            httpContext.TcpClient = tcpClient;
+                                            httpContext.OriginalRequestData = requestByteList.ToArray();
+                                            httpContext.Request = httpRequest;
+                                            httpContext.Response = new HttpResponse();
+                                            httpContext.Response.Version = httpRequest == null ? "HTTP/1.1" : httpRequest.Version;
+                                            httpContext.Response.ResponseStream = httpRequest.RequestStream;
+                                            RequestDelegate notFoundRequestDel = (httpContext) =>
+                                            {
+                                                httpContext.Response.StatusCode = "404";
+                                                httpContext.Response.StatusMessage = "Not Found";
+                                                return Task.CompletedTask;
+                                            };
+                                            foreach (var fun in list.Reverse<Func<RequestDelegate, RequestDelegate>>())
+                                            {
+                                                notFoundRequestDel = fun(notFoundRequestDel);
+                                            }
+                                            notFoundRequestDel.Invoke(httpContext);
                                         }
                                     }
                                     catch (Exception ex)
                                     {
                                         Log.Write("处理请求出错", ex);
-                                        if (httpHandler == null)
+                                        httpContext.Response.ResponseStream = tcpClient.GetStream();
+                                        httpContext.Response.ContentType = "text/html";
+                                        httpContext.Response.ResponseBody = Encoding.UTF8.GetBytes(File.ReadAllText(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "html/error_500.html")).Replace("@error", "处理您的请求出错了，" + ex.Message + "," + ex.Source + "," + ex.StackTrace));
+                                        httpContext.Response.StatusCode = "500";
+                                        httpContext.Response.StatusMessage = "Error";
+                                        if (httpContext.Response.ResponseHeaders == null)
                                         {
-                                            httpHandler = new HttpHandler();
-                                            if (httpHandler.httpResponse == null)
-                                            {
-                                                httpHandler.httpResponse = new HttpResponse();
-                                                httpHandler.httpResponse.ResponseStream = tcpClient.GetStream();
-                                                httpHandler.httpResponse.ContentType = "text/html";
-                                                httpHandler.httpResponse.ResponseBody = Encoding.UTF8.GetBytes(File.ReadAllText(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "html/error_500.html")).Replace("@error", "处理您的请求出错了，" + ex.Message + "," + ex.Source + "," + ex.StackTrace));
-                                                httpHandler.httpResponse.StatusCode = "500";
-                                                httpHandler.httpResponse.StatusMessage = "Error";
-                                                if (httpHandler.httpResponse.ResponseHeaders == null)
-                                                {
-                                                    httpHandler.httpResponse.ResponseHeaders = new Dictionary<string, object>();
-                                                }
-                                                httpHandler.httpResponse.ResponseHeaders["Server"] = "softsunlight_webserver";
-                                                httpHandler.httpResponse.ResponseHeaders["Date"] = DateTime.Now.ToLongTimeString();
-                                            }
+                                            httpContext.Response.ResponseHeaders = new Dictionary<string, object>();
                                         }
+                                        httpContext.Response.ResponseHeaders["Server"] = "softsunlight_webserver";
+                                        httpContext.Response.ResponseHeaders["Date"] = DateTime.Now.ToLongTimeString();
                                     }
                                     finally
                                     {
                                         if (isReadEnd)
                                         {
-                                            if (httpHandler != null)
-                                            {
-                                                httpHandler.ProcessRequest();
-                                            }
+                                            httpContext.Response.Write();
                                             if (requestByteList != null && requestByteList.Count > 0)
                                             {
                                                 requestByteList.Clear();
@@ -184,9 +228,7 @@ namespace ThinkInAspNetCore.MiniMvc
             }
             catch (Exception ex)
             {
-                Log.Write("启动web服务出错", ex);
-                Thread.Sleep(10000);
-                Run();
+                throw ex;
             }
         }
 

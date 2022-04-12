@@ -140,7 +140,6 @@ namespace ThinkInAspNetCore.MiniMvc
             {
                 stringBuilder.Append("Content-Length:").Append(ResponseBody.Length).Append(Environment.NewLine);
                 stringBuilder.Append(Environment.NewLine);
-                stringBuilder.Append(ResponseBody);
             }
             else
             {
@@ -154,6 +153,10 @@ namespace ThinkInAspNetCore.MiniMvc
                 //DeflateStream deflateStream = new DeflateStream(ResponseStream, CompressionMode.Compress);
                 //memoryStream.CopyTo(deflateStream);
                 ResponseStream.Write(Encoding.UTF8.GetBytes(stringBuilder.ToString()));
+                if (ResponseBody != null)
+                {
+                    ResponseStream.Write(ResponseBody);
+                }
             }
         }
 

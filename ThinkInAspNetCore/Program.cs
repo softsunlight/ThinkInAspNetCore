@@ -3,12 +3,14 @@ using System.Collections.Generic;
 using System.IO;
 using System.Net;
 using System.Net.Sockets;
+using System.Reflection;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using ThinkInAspNetCore.MiniMvc;
+using ThinkInAspNetCore.MiniMvc.Extensions;
 
 namespace ThinkInAspNetCore
 {
@@ -16,7 +18,12 @@ namespace ThinkInAspNetCore
     {
         static void Main(string[] args)
         {
-            new WebApplication(args).Run();
+            WebApplication webApplication = new WebApplication(args);
+            webApplication.UseStaticFile();
+            webApplication.UseCors();
+            webApplication.UseWebSocket();
+            webApplication.UseMvc();
+            webApplication.Run();
         }
 
     }
