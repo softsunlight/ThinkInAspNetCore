@@ -9,8 +9,8 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
-using ThinkInAspNetCore.MiniMvc;
-using ThinkInAspNetCore.MiniMvc.Extensions;
+using SoftSunlight.MiniMvc;
+using SoftSunlight.MiniMvc.Extensions;
 
 namespace ThinkInAspNetCore
 {

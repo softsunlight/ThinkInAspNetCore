@@ -6,6 +6,10 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\SoftSunlight.MiniMvc\SoftSunlight.MiniMvc.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
     <None Update="css\site.css">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </None>
