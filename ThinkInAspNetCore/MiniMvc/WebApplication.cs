@@ -105,6 +105,9 @@ namespace ThinkInAspNetCore.MiniMvc
                                 {
                                     HttpRequest httpRequest = new HttpRequest();
                                     HttpContext httpContext = new HttpContext();
+                                    httpContext.TcpClient = tcpClient;
+                                    httpContext.Response = new HttpResponse();
+                                    httpContext.Response.ResponseStream = tcpClient.GetStream();
                                     try
                                     {
                                         byte[] requestDatas = memoryStream.ToArray();
@@ -121,10 +124,12 @@ namespace ThinkInAspNetCore.MiniMvc
                                             frames.Add(webSocketFrame);
                                             if (webSocketFrame.Fin)
                                             {
+                                                //if (webSocketFrame.Opcode == OpcodeEnum.Text || webSocketFrame.Opcode == OpcodeEnum.Binary)
+                                                //{
+                                                //    //httpContext.WebSocket
+                                                //}
                                                 //开始处理WebSocket请求
                                             }
-                                            //isReadEnd = true;
-                                            //httpRequest = BuildWebSocketRequest(tcpClient, requestByteList.ToArray());
                                         }
                                         else
                                         {
@@ -134,43 +139,48 @@ namespace ThinkInAspNetCore.MiniMvc
                                             httpRequest = GetRequestHeader(httpRequest, requestByteList.ToArray(), out requestBodyStart, out lastSpaceCharIndex);
                                             if (httpRequest == null)
                                             {
-                                                throw new Exception("请求内容为空");
+                                                httpContext.Response.StatusCode = "400";
+                                                httpContext.Response.StatusMessage = "Bad Request";
+                                                return;
                                             }
-                                            if (httpRequest.RequestHeaders.ContainsKey("Content-Length"))
+                                            if (httpRequest.RequestHeaders != null && httpRequest.RequestHeaders.ContainsKey("Content-Length"))
                                             {
                                                 int contentLength = Convert.ToInt32(httpRequest.RequestHeaders["Content-Length"]);
                                                 if (requestByteList.Count >= contentLength)
                                                 {
                                                     isReadEnd = true;
-                                                    string content = Encoding.UTF8.GetString(requestByteList.ToArray(), 0, requestBodyStart);
-                                                    Log.Write(content);
-                                                    httpRequest = BuildRequest(tcpClient, requestByteList.ToArray());
                                                 }
                                             }
                                             else
                                             {
                                                 isReadEnd = true;
+                                            }
+                                            if (isReadEnd)
+                                            {
+                                                httpContext.Response.Version = httpRequest == null ? "HTTP/1.1" : httpRequest.Version;
                                                 string content = Encoding.UTF8.GetString(requestByteList.ToArray(), 0, requestBodyStart);
                                                 Log.Write(content);
-                                                httpRequest = BuildRequest(tcpClient, requestByteList.ToArray());
+                                                httpRequest = BuildRequest(httpRequest, tcpClient, requestByteList.ToArray());
+                                                if (httpRequest == null)
+                                                {
+                                                    httpContext.Response.StatusCode = "400";
+                                                    httpContext.Response.StatusMessage = "Bad Request";
+                                                    return;
+                                                }
+                                                httpContext.Request = httpRequest;
+                                                httpContext.OriginalRequestData = requestByteList.ToArray();
+                                                RequestDelegate notFoundRequestDel = (httpContext) =>
+                                                {
+                                                    httpContext.Response.StatusCode = "404";
+                                                    httpContext.Response.StatusMessage = "Not Found";
+                                                    return Task.CompletedTask;
+                                                };
+                                                foreach (var fun in list.Reverse<Func<RequestDelegate, RequestDelegate>>())
+                                                {
+                                                    notFoundRequestDel = fun(notFoundRequestDel);
+                                                }
+                                                notFoundRequestDel.Invoke(httpContext);
                                             }
-                                            httpContext.TcpClient = tcpClient;
-                                            httpContext.OriginalRequestData = requestByteList.ToArray();
-                                            httpContext.Request = httpRequest;
-                                            httpContext.Response = new HttpResponse();
-                                            httpContext.Response.Version = httpRequest == null ? "HTTP/1.1" : httpRequest.Version;
-                                            httpContext.Response.ResponseStream = httpRequest.RequestStream;
-                                            RequestDelegate notFoundRequestDel = (httpContext) =>
-                                            {
-                                                httpContext.Response.StatusCode = "404";
-                                                httpContext.Response.StatusMessage = "Not Found";
-                                                return Task.CompletedTask;
-                                            };
-                                            foreach (var fun in list.Reverse<Func<RequestDelegate, RequestDelegate>>())
-                                            {
-                                                notFoundRequestDel = fun(notFoundRequestDel);
-                                            }
-                                            notFoundRequestDel.Invoke(httpContext);
                                         }
                                     }
                                     catch (Exception ex)
@@ -362,12 +372,11 @@ namespace ThinkInAspNetCore.MiniMvc
         /// <param name="tcpClient"></param>
         /// <param name="requestDatas"></param>
         /// <returns></returns>
-        private static HttpRequest BuildRequest(TcpClient tcpClient, byte[] requestDatas)
+        private static HttpRequest BuildRequest(HttpRequest httpRequest, TcpClient tcpClient, byte[] requestDatas)
         {
-            HttpRequest httpRequest = new HttpRequest();
-            if (tcpClient.Connected)
+            if (httpRequest == null)
             {
-                httpRequest.RequestStream = tcpClient.GetStream();
+                throw new ArgumentNullException();
             }
             if (requestDatas.Length <= 0)
             {
@@ -630,6 +639,44 @@ namespace ThinkInAspNetCore.MiniMvc
         /// <returns></returns>
         private bool IsWebSocket(byte[] requestDatas)
         {
+            WebSocketUtils webSocketUtils = new WebSocketUtils();
+            try
+            {
+                WebSocketFrame webSocketFrame = webSocketUtils.GetWebSocketFrame(requestDatas);
+                long frameBytes = 2;
+                if (webSocketFrame.PayloadLen <= 125)
+                {
+                    frameBytes += webSocketFrame.PayloadLen;
+                }
+                else if (webSocketFrame.PayloadLen == 126)
+                {
+                    frameBytes += 2;
+                    frameBytes += webSocketFrame.ExtPayloadLen;
+                }
+                else if (webSocketFrame.PayloadLen == 127)
+                {
+                    frameBytes += 8;
+                    frameBytes += webSocketFrame.ExtPayloadLen;
+                }
+                if (frameBytes == requestDatas.Length)
+                {
+                    return true;
+                }
+            }
+            catch (Exception ex)
+            {
+
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// 判断是否是http请求
+        /// </summary>
+        /// <param name="requestDatas"></param>
+        /// <returns></returns>
+        private bool IsHttpRequest(byte[] requestDatas)
+        {
             //刺探性的获取前10个字节
             int length = 10;
             if (length > requestDatas.Length)
@@ -640,7 +687,7 @@ namespace ThinkInAspNetCore.MiniMvc
             Array.Copy(requestDatas, bytes, length);
             string str = Encoding.UTF8.GetString(bytes);
             Type type = typeof(HttpRequestMethod);
-            if (!Regex.IsMatch(str, @"(?is)" + string.Join("|", type.GetFields().Select(p => p.Name))))
+            if (Regex.IsMatch(str, @"(?is)" + string.Join("|", type.GetFields().Select(p => p.Name))))
             {
                 return true;
             }

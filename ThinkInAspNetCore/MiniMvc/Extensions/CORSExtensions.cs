@@ -13,7 +13,7 @@ namespace ThinkInAspNetCore.MiniMvc.Extensions
             {
                 if (context.Request.Method == "OPTIONS")
                 {
-                    if (context.Request.RequestHeaders.ContainsKey("Access-Control-Request-Method"))
+                    if (context.Request.RequestHeaders != null && context.Request.RequestHeaders.ContainsKey("Access-Control-Request-Method"))
                     {
                         //CORS 预检请求
                         if (context.Request.RequestHeaders.ContainsKey("Origin"))
