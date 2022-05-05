@@ -189,7 +189,15 @@ namespace SoftSunlight.MiniMvc
                                         Log.Write("处理请求出错", ex);
                                         httpContext.Response.ResponseStream = tcpClient.GetStream();
                                         httpContext.Response.ContentType = "text/html";
-                                        httpContext.Response.ResponseBody = Encoding.UTF8.GetBytes(File.ReadAllText(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "html/error_500.html")).Replace("@error", "处理您的请求出错了，" + ex.Message + "," + ex.Source + "," + ex.StackTrace));
+                                        string path = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "html/error_500.html");
+                                        if (File.Exists(path))
+                                        {
+                                            httpContext.Response.ResponseBody = Encoding.UTF8.GetBytes(File.ReadAllText(path).Replace("@error", "处理您的请求出错了，" + ex.Message + "," + ex.Source + "," + ex.StackTrace));
+                                        }
+                                        else
+                                        {
+                                            httpContext.Response.ResponseBody = Encoding.UTF8.GetBytes("处理您的请求出错了，" + ex.Message + "," + ex.Source + "," + ex.StackTrace);
+                                        }
                                         httpContext.Response.StatusCode = "500";
                                         httpContext.Response.StatusMessage = "Error";
                                         if (httpContext.Response.ResponseHeaders == null)

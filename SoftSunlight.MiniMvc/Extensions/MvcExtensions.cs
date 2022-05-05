@@ -78,7 +78,15 @@ namespace SoftSunlight.MiniMvc.Extensions
                     }
                     if (actionMem != null)
                     {
-                        actionMem.Invoke(controllerObj, null);
+                        var parameters = actionMem.GetParameters();
+                        object[] objs = new object[parameters.Length];
+                        for (var i = 0; i < parameters.Length; i++)
+                        {
+                            var obj = Activator.CreateInstance(parameters[i].ParameterType);
+                            //objs[i] = parameters[i].DefaultValue;
+                            objs[i] = obj;
+                        }
+                        actionMem.Invoke(controllerObj, objs);
                     }
                     else
                     {
